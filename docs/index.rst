@@ -2,7 +2,7 @@ pygrindvakt
 ===========
 
 **pygrindvakt** is a Python binding for `grindvakt
-<https://github.com/kushaldas/grindvakt>`_ 0.10.x, a runtime-agnostic Rust
+<https://github.com/kushaldas/grindvakt>`_ 0.11.x, a runtime-agnostic Rust
 library for **OAuth 2.0**, **OpenID Connect** and **OpenID Federation 1.1**. It
 exposes grindvakt's OpenID Provider engine, its Relying Party toolkit,
 federation trust-chain resolution, DPoP (RFC 9449) proof validation, and the

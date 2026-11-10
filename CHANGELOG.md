@@ -7,6 +7,25 @@ needed to track the upstream `grindvakt` library and correct protocol or
 security handling. `pygrindvakt` is a thin PyO3 binding; most entries reflect
 adopting a change made in `grindvakt` / `jose-rs` and surfacing it to Python.
 
+## [Unreleased]
+
+### Changed
+
+- Bind `grindvakt` 0.11.0, a dependency-only release (no API changes): `jose-rs`
+  0.11.0, `kryptering` 0.7.1, stable `rsa` 0.10.0 (was `0.10.0-rc.19`) and
+  `redis` 1.8.1. Clears the `crypto-bigint` advisories. MSRV stays Rust 1.89.
+- `rsa` moved from `=0.10.0-rc.19` to stable 0.10.0: constant-time modular
+  exponentiation on `crypto-bigint`, hardened private-key operations, zeroized
+  precomputed CRT parameters and PKCS#1 v1.5 implicit rejection.
+  RUSTSEC-2023-0071 (Marvin) is fixed by that release, and the fix comes
+  through `kryptering` 0.7.1, which dropped its audit exception for it. The
+  `RUSTSEC-2023-0071` ignores still present in the `.cargo/audit.toml` of
+  `jose-rs` 0.11.0 and `grindvakt` 0.11.0 (and their "no patched release"
+  and "rate-limit RSA failures" guidance) are stale and in error, not a
+  sign that the advisory is still open in this dependency graph.
+  RSA1_5 key transport stays unreachable: `jose-rs` refuses it and the
+  `kryptering` `legacy` feature is off.
+
 ## [0.4.0] - 2026-10-30
 
 ### Added

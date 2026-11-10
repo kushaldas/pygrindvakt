@@ -205,7 +205,19 @@ def test_reqwest_connect_failure_through_rp_function():
 
 
 class _Handler(BaseHTTPRequestHandler):
+    # Paths where the client is expected to hang up early: /slow (client times
+    # out while we sleep) and /big (client aborts the body at its size cap).
+    # A disconnect anywhere else is a real error and must stay visible.
+    _CLIENT_ABORTS = frozenset({"/slow", "/big"})
+
     def do_GET(self):
+        try:
+            self._respond()
+        except (BrokenPipeError, ConnectionResetError):
+            if self.path not in self._CLIENT_ABORTS:
+                raise
+
+    def _respond(self):
         if self.path == "/slow":
             time.sleep(3)
         elif self.path == "/big":
