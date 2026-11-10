@@ -19,6 +19,9 @@ env:
   FORCE_COLOR: "1"
   UV_LINK_MODE: "copy"
   UV_VERSION: "0.11.23"
+  # Rust compiler for CI and release builds. The manylinux setup script requires it
+  # (passed via `docker run -e`); bump it here and in the other workflow.
+  RUST_TOOLCHAIN: "1.99.1"
 jobs:
 
   manylinux_x86_64:
@@ -31,12 +34,16 @@ jobs:
       run: docker pull quay.io/pypa/manylinux_2_28_x86_64
 
     - name: Build the wheel inside manylinux container
+      env:
+        UV_VERSION: ${{ env.UV_VERSION }}
+        RUST_TOOLCHAIN: ${{ env.RUST_TOOLCHAIN }}
       run: |
         docker run --rm \
-          -e UV_VERSION=${{ env.UV_VERSION }} \
+          -e UV_VERSION="$UV_VERSION" \
+          -e RUST_TOOLCHAIN="$RUST_TOOLCHAIN" \
           -e RUSTUP_HOME=/opt/rustup \
           -e CARGO_HOME=/opt/cargo \
-          -v ${{ github.workspace }}:/io \
+          -v "$GITHUB_WORKSPACE":/io \
           quay.io/pypa/manylinux_2_28_x86_64 \
           /bin/bash /io/.github/scripts/setup-manylinux-build-env.sh
 
@@ -85,7 +92,9 @@ jobs:
     - name: Install SoftHSM2 + OpenSC
       run: sudo apt-get update && sudo apt-get install -y softhsm2 opensc
 
-    - uses: dtolnay/rust-toolchain@stable
+    - uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ env.RUST_TOOLCHAIN }}
 
     - name: Install UV
       run: |
@@ -96,7 +105,7 @@ jobs:
       run: |
         uv venv
         uv pip install "maturin==1.14.1" pytest cryptography flask django fastapi httpx
-        .venv/bin/maturin develop
+        .venv/bin/maturin develop --locked
 
     - name: Run the test suite (incl. PKCS#11 and Redis)
       run: |

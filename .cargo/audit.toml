@@ -1,0 +1,5 @@
+# RUSTSEC-2023-0071 (RSA Marvin attack) is fixed in rsa >= 0.10.0 via
+# kryptering 0.7.1. The ignores for it in jose-rs 0.11.0 / grindvakt 0.11.0 are
+# stale and must NOT be copied here.
+[advisories]
+ignore = []

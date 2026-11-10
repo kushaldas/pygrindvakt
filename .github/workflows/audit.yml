@@ -1,0 +1,62 @@
+name: audit
+on:
+  pull_request:
+    paths:
+      - 'Cargo.lock'
+      - 'Cargo.toml'
+      - '.cargo/audit.toml'
+      - 'uv.lock'
+      - 'pyproject.toml'
+      - '.github/workflows/audit.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'Cargo.lock'
+      - 'Cargo.toml'
+      - '.cargo/audit.toml'
+      - 'uv.lock'
+      - 'pyproject.toml'
+      - '.github/workflows/audit.yml'
+  schedule:
+    - cron: '17 5 * * 1'
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  FORCE_COLOR: "1"
+  UV_VERSION: "0.11.23"
+jobs:
+  cargo-audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+    - uses: actions/checkout@v7
+
+    - uses: dtolnay/rust-toolchain@stable
+
+    - name: Install cargo-audit
+      run: cargo install cargo-audit --locked --version 0.22.2
+
+    - name: Audit Cargo.lock
+      run: cargo audit --deny warnings
+
+  # Python side: the dev/test/docs dependencies pinned in uv.lock. These are not
+  # shipped in the wheel, but they run in CI and in developers' environments.
+  pip-audit:
+    name: pip-audit (uv.lock)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Install UV
+      run: |
+        python3 -m pip install --user "uv==${UV_VERSION}"
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+    - name: Export the locked requirements
+      run: uv export --frozen --all-groups --no-emit-project -o requirements-audit.txt
+
+    - name: Audit the locked requirements
+      run: uvx --from pip-audit==2.10.1 pip-audit -r requirements-audit.txt --disable-pip

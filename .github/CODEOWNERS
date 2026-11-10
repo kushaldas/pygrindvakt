@@ -1,0 +1,16 @@
+# Changes to the dependency-audit policy, the dependency manifests and lockfiles,
+# and the build/release pipeline need review from the code owner, so an advisory
+# ignore, a toolchain or checksum pin, a workflow trigger or a dependency bump
+# cannot change unnoticed. This only blocks merges when the branch protection rule
+# "Require review from Code Owners" is enabled.
+/.cargo/audit.toml  @johanlundberg @kushaldas
+/.github/CODEOWNERS @johanlundberg @kushaldas
+/.github/workflows/ @johanlundberg @kushaldas
+/.github/scripts/   @johanlundberg @kushaldas
+/build-wheels.sh    @johanlundberg @kushaldas
+/.github/dependabot.yml @johanlundberg @kushaldas
+/Cargo.lock         @johanlundberg @kushaldas
+/Cargo.toml         @johanlundberg @kushaldas
+/uv.lock            @johanlundberg @kushaldas
+/pyproject.toml     @johanlundberg @kushaldas
+/justfile           @johanlundberg @kushaldas
