@@ -1,6 +1,6 @@
 # pygrindvakt
 
-Python bindings for [grindvakt](https://github.com/kushaldas/grindvakt) **0.10.0**, a
+Python bindings for [grindvakt](https://github.com/kushaldas/grindvakt) **0.11.0**, a
 runtime-agnostic Rust library for **OAuth 2.0**, **OpenID Connect** and
 **OpenID Federation 1.1**: an OpenID Provider engine, a Relying Party toolkit,
 federation trust-chain resolution, DPoP (RFC 9449), and the JOSE/key primitives

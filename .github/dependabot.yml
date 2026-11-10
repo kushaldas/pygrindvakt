@@ -1,0 +1,11 @@
+version: 2
+updates:
+  # Keep the pinned actions (actions/checkout, upload-artifact, ...) current.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns:
+          - "*"

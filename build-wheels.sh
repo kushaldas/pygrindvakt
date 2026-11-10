@@ -23,7 +23,8 @@ cd /io/
 # pygrindvakt builds an abi3 (py310+) wheel, so the single artifact produced
 # here covers every supported CPython; the cp314 interpreter above is only the
 # build driver.
-maturin build --release --strip --manylinux --sdist
+# --locked: fail the build if Cargo.lock is stale instead of silently re-resolving.
+maturin build --release --strip --manylinux --sdist --locked
 mkdir -p dist/
 cp target/wheels/pygrindvakt*.whl ./dist/
 cp target/wheels/pygrindvakt*.tar.gz ./dist/

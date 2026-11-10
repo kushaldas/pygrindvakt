@@ -10,7 +10,7 @@ python_dirs := "python tests examples"
 
 # Build the extension into .venv (needed before `test`).
 develop:
-    .venv/bin/maturin develop
+    .venv/bin/maturin develop --locked
 
 # Run the test suite; extra pytest arguments are passed through.
 test *args:
@@ -23,6 +23,11 @@ typecheck:
 # Lint with ruff.
 lint:
     .venv/bin/ruff check {{ python_dirs }}
+
+# pins cargo-audit 0.22.2 in CI: cargo install cargo-audit --locked --version 0.22.2
+# Audit Cargo.lock against the RustSec advisory DB (same command as CI).
+audit:
+    cargo audit --deny warnings
 
 # Check formatting with ruff without changing files.
 format-check:
