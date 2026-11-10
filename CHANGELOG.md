@@ -7,7 +7,7 @@ needed to track the upstream `grindvakt` library and correct protocol or
 security handling. `pygrindvakt` is a thin PyO3 binding; most entries reflect
 adopting a change made in `grindvakt` / `jose-rs` and surfacing it to Python.
 
-## [Unreleased]
+## [0.4.1] - 2026-11-10
 
 ### Changed
 
@@ -25,6 +25,24 @@ adopting a change made in `grindvakt` / `jose-rs` and surfacing it to Python.
   sign that the advisory is still open in this dependency graph.
   RSA1_5 key transport stays unreachable: `jose-rs` refuses it and the
   `kryptering` `legacy` feature is off.
+- `uv.lock`: certifi 2026.10.23, urllib3 2.8.0 and werkzeug 3.1.9, after
+  pip-audit flagged the previous versions. These are development and test
+  dependencies and are not shipped in the wheel.
+
+### Build and CI
+
+- The wheel build and `just develop` use `--locked`, so a stale `Cargo.lock`
+  fails the build instead of being re-resolved.
+- The wheel build and the PKCS#11/Redis CI job use a pinned Rust toolchain
+  (1.99.1, set in `ci.yml` and `release.yml`). `rustup-init` is pinned to
+  1.29.3 and checked against a SHA-256.
+- New `audit.yml` workflow: `cargo audit --deny warnings` and `pip-audit` over
+  the hashed `uv.lock` export, on lockfile changes, pushes to `main`, weekly
+  and on demand. `just audit` runs the cargo side locally.
+- `CODEOWNERS` covers the audit policy, pipeline, manifests and lockfiles, and
+  Dependabot keeps GitHub Actions references current.
+- The test HTTP server no longer prints a `BrokenPipeError` traceback when a
+  client times out or aborts.
 
 ## [0.4.0] - 2026-10-30
 

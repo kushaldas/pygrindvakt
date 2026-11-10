@@ -153,6 +153,11 @@ version is what ``Cargo.lock`` pins).
    * - pygrindvakt
      - grindvakt
      - Notes
+   * - 0.4.1
+     - 0.11.0
+     - binds core 0.11 (Rust 1.89), a dependency-only release: stable ``rsa`` 0.10.0
+       (RUSTSEC-2023-0071 fixed), ``jose-rs`` 0.11.0, ``kryptering`` 0.7.1; locked
+       and pinned wheel build, ``cargo audit`` and ``pip-audit`` in CI.
    * - 0.4.0
      - 0.10.0
      - binds core 0.10 (Rust 1.89): RFC 9207 ``iss`` for the in-process ``Provider``,
