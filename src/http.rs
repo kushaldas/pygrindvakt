@@ -863,8 +863,17 @@ fn header_map(headers: &[(String, String)]) -> grindvakt::Result<reqwest::header
     Ok(map)
 }
 
+/// RFC 9110 `token`: one or more visible ASCII characters other than
+/// delimiters (so no spaces, commas, quotes, slashes or other separators).
+fn is_http_token(s: &str) -> bool {
+    !s.is_empty()
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
+}
+
 /// Whether a `Content-Type` value's media type (parameters ignored,
-/// case-insensitive) is `application/json` or `application/*+json`.
+/// case-insensitive) is `application/json` or `application/*+json`, with a
+/// subtype that is a valid RFC 9110 token.
 fn is_json_media_type(value: &str) -> bool {
     let essence = value
         .split(';')
@@ -874,7 +883,7 @@ fn is_json_media_type(value: &str) -> bool {
         .to_ascii_lowercase();
     match essence.strip_prefix("application/") {
         Some("json") => true,
-        Some(sub) => sub.len() > "+json".len() && sub.ends_with("+json") && !sub.contains('/'),
+        Some(sub) => sub.len() > "+json".len() && sub.ends_with("+json") && is_http_token(sub),
         None => false,
     }
 }

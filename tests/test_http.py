@@ -569,6 +569,7 @@ def test_post_json_against_local_server():
         ("Application/JSON", "Application/JSON"),
         ("application/merge-patch+json", "application/merge-patch+json"),
         ("application/vnd.api+JSON;x=y", "application/vnd.api+JSON;x=y"),
+        ("application/vnd.a-b_c.d!#$%&'*^`|~+json", "application/vnd.a-b_c.d!#$%&'*^`|~+json"),
     ],
 )
 def test_post_json_content_type_policy_kept(supplied, kept):
@@ -589,6 +590,11 @@ def test_post_json_content_type_policy_kept(supplied, kept):
         [("Content-Type", "application/jsonx")],
         [("Content-Type", "application/+json")],
         [("Content-Type", "text/json")],
+        [("Content-Type", "application/not json+json")],
+        [("Content-Type", "application/foo,bar+json")],
+        [("Content-Type", 'application/"x"+json')],
+        [("Content-Type", "application/a/b+json")],
+        [("Content-Type", "application/ x+json")],
         [("Content-Type", "application/json"), ("content-type", "application/json")],
     ],
 )
