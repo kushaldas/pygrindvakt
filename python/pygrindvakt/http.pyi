@@ -16,6 +16,11 @@ calls ``get`` and falls back on ``TypeError``. A client without support raises
 ``ConfigError`` only when a GET with headers is requested. See
 ``HttpClientWithHeadersProtocol``.
 
+A JSON POST (``ReqwestClient.post_json``) is optional for an injected client: it
+may provide ``post_json(url, body, headers)``, where ``body`` is a
+JSON-compatible Python object. A client without it raises ``ConfigError`` only
+when a JSON POST is requested. See ``HttpClientPostJsonProtocol``.
+
 NAME SHADOWING: ``from pygrindvakt import http`` rebinds the name ``http`` in
 the importing module and shadows the standard-library ``http`` package there
 (``http.HTTPStatus``, ``http.client``, ``http.server`` ...). Prefer
@@ -75,6 +80,23 @@ class HttpClientGetWithHeadersProtocol(HttpClientProtocol, Protocol):
     """
 
     def get_with_headers(self, url: str, headers: list[tuple[str, str]]) -> _FetchResult: ...
+
+class HttpClientPostJsonProtocol(HttpClientProtocol, Protocol):
+    """An ``HttpClientProtocol`` that also provides ``post_json(url, body, headers)``.
+
+    Stub-only. ``post_json`` is optional: the required members stay ``get`` and
+    ``post_form``. ``body`` is a JSON-compatible Python object (dict, list,
+    str, int, float, bool or None); the method returns the same result as
+    ``post_form``. It must set ``Content-Type: application/json`` and must not
+    follow cross-origin redirects (including 307 / 308).
+    """
+
+    def post_json(
+        self,
+        url: str,
+        body: Any,
+        headers: list[tuple[str, str]],
+    ) -> _FetchResult: ...
 
 class HttpRequestData:
     """A parsed inbound HTTP request, normalized for grindvakt.
@@ -239,7 +261,7 @@ class ReqwestClient:
     """The built-in outbound HTTP client (reqwest + rustls).
 
     Never follows redirects, enforces connect/read/total timeouts and a
-    streaming response-size cap. Also exposes ``get`` / ``post_form`` so it
+    streaming response-size cap. Also exposes ``get`` / ``post_form`` / ``post_json`` so it
     satisfies the Python ``HttpClientProtocol`` itself.
 
     Thread safety: instances are frozen and share their state behind an
@@ -279,6 +301,34 @@ class ReqwestClient:
         headers: list[tuple[str, str]] | None = ...,
     ) -> tuple[int, bytes, str | None]:
         """Issue a form-encoded POST. Returns ``(status, body, content_type)``."""
+    def post_json(
+        self,
+        url: str,
+        body: Any,
+        headers: list[tuple[str, str]] | None = ...,
+    ) -> tuple[int, bytes, str | None]:
+        """Send a JSON body with a POST. Returns ``(status, body, content_type)``.
+
+        Lets you call a JSON API without another HTTP library, using this
+        client's timeouts, response-size cap and TLS settings. ``body`` in the
+        result is the raw response bytes: decode it yourself (``json.loads``).
+
+        ``body`` is any JSON-compatible value (sets, deques and other
+        sequence-like objects serialize as arrays), serialized compactly with
+        dict order kept and integers exact. NaN / infinity and nesting deeper than
+        127 levels raise ``ValueError``; a value that is not JSON-compatible raises
+        ``TypeError``. Nothing is sent in those cases.
+
+        ``Content-Type: application/json`` is set unless ``headers`` supplies
+        one whose media type is ``application/json`` or ``application/*+json``
+        (parameters and case ignored), which is kept; any other Content-Type
+        raises ``BadRequestError``. Redirects are never followed (including 307
+        / 308), so the headers are only sent to ``url``. An invalid header name
+        or value raises ``BadRequestError``, as does supplying ``Content-Length``,
+        ``Transfer-Encoding``, ``Host``, ``Connection``, ``Expect`` or
+        ``Content-Encoding`` (the client frames and addresses the request
+        itself; ``get`` and ``post_form`` refuse them too).
+        """
     def __repr__(self) -> str: ...
 
 # Stub-only aliases (underscore-prefixed so they are not expected at runtime).

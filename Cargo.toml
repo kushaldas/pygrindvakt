@@ -16,7 +16,7 @@ pyo3 = { version = "0.29.2", features = ["extension-module", "abi3-py310"] }
 pythonize = { version = "0.29.0", features = ["arbitrary_precision"] }
 # Use the published protocol engine in local and release builds alike.
 # jose-rs / kryptering types are re-exported by grindvakt.
-grindvakt = { version = "0.11.0", features = ["pkcs11", "redis"] }
+grindvakt = { version = "0.12.0", features = ["pkcs11", "redis"] }
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 async-trait = "0.1"

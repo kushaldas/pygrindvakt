@@ -21,7 +21,7 @@ depends on any framework.
 Outbound HTTP (RP discovery, code exchange, federation fetches) goes through an
 object satisfying the :class:`HttpClientProtocol`: either the built-in
 :class:`ReqwestClient` or any Python object with ``get`` and ``post_form``
-methods.
+methods. A ``post_json`` method is optional (see below).
 
 .. warning::
 
@@ -39,11 +39,14 @@ redirects to, so the client must not leak credentials:
 * ``post_form`` carries ``client_secret``, authorization codes, PKCE verifiers
   and ``Authorization`` headers. It must not follow cross-origin redirects at
   all, including ``307`` / ``308``.
+* ``post_json`` carries a JSON body and any headers you pass (for example
+  ``Authorization``). It must not follow cross-origin redirects at all,
+  including ``307`` / ``308``.
 * GET with headers carries ``Authorization: Bearer``. It must not follow
   redirects, or must strip ``Authorization`` on a cross-origin redirect.
 
 The built-in :class:`ReqwestClient` never follows redirects for any request
-(``GET``, ``GET`` with headers, ``POST``); a ``3xx`` is returned as an ordinary
+(``GET``, ``GET`` with headers, form ``POST``, JSON ``POST``); a ``3xx`` is returned as an ordinary
 response and callers treat it as a failure. An injected client is responsible
 for the same policy.
 
@@ -297,6 +300,20 @@ Outbound HTTP client protocol
       ``form`` may be empty: :func:`pygrindvakt.rp.fetch_userinfo` sends the
       bearer token this way by default (``method="POST"``).
 
+   .. py:method:: post_json(url: str, body: Any, headers: list[tuple[str, str]]) -> tuple[int, bytes, str | None]
+
+      **Optional.** Issue a POST with a JSON body and return
+      ``(status, body, content_type)``, like ``post_form``. ``body`` is passed
+      as a JSON-compatible Python object (dict, list, str, int, float, bool or
+      ``None``). The method should set ``Content-Type: application/json``
+      and must not follow cross-origin redirects. It is looked up when a JSON
+      POST is requested; a client without it raises
+      :class:`pygrindvakt.ConfigError` for that call only. The required
+      members stay ``get`` and ``post_form``. The type-checking protocol is
+      :class:`HttpClientPostJsonProtocol` (stub-only).
+
+      .. versionadded:: 0.5.0
+
    The implementation runs on the thread that is driving the pygrindvakt
    call, holding the GIL (so a client shared across threads must be
    thread-safe itself). It may call back into pygrindvakt, which is how a
@@ -327,6 +344,14 @@ Outbound HTTP client protocol
               return r.status_code, r.content, r.headers.get("content-type")
 
       md = rp.discover(HttpxClient("/etc/ssl/private-ca.pem"), "https://op.example.com")
+
+.. py:class:: HttpClientPostJsonProtocol
+
+   The :class:`HttpClientProtocol` variant that also provides the optional
+   ``post_json(url, body, headers)``. **Stub-only**, like
+   :class:`HttpClientWithHeadersProtocol`: it is not importable at runtime.
+
+   .. versionadded:: 0.5.0
 
 .. py:class:: HttpClientWithHeadersProtocol
 
@@ -430,7 +455,7 @@ Built-in client
    threads must be thread-safe itself. A re-entrant call back into pygrindvakt
    from inside it costs a helper thread.
 
-   It also exposes ``get`` / ``post_form`` so it satisfies the Python
+   It also exposes ``get`` / ``post_form`` / ``post_json`` so it satisfies the Python
    :class:`HttpClientProtocol` itself, which makes it usable from your own
    code for fetches that need the same hardening.
 
@@ -440,16 +465,89 @@ Built-in client
       pairs. Returns ``(status, body, content_type)``. A ``3xx`` comes
       back as-is (not followed), so the headers are never forwarded to a
       redirect target. An invalid header name or value raises
-      :class:`pygrindvakt.BadRequestError`. Raises :class:`pygrindvakt.InternalError` on
-      connection failure or when the body exceeds ``max_response_bytes``.
+      :class:`pygrindvakt.BadRequestError`, as does supplying
+      ``Content-Length``, ``Transfer-Encoding``, ``Host``, ``Connection``,
+      ``Expect`` or ``Content-Encoding`` (see below). Raises
+      :class:`pygrindvakt.InternalError` on connection failure or when the body
+      exceeds ``max_response_bytes``.
 
       .. versionchanged:: 0.2.0
          Added the ``headers`` parameter and the recording of response headers
          on the internal fetch response.
 
+      .. versionchanged:: 0.5.0
+         Refuses client-owned headers.
+
    .. py:method:: post_form(url: str, form: list[tuple[str, str]], headers: list[tuple[str, str]] | None = None) -> tuple[int, bytes, str | None]
 
-      Issue a form-encoded POST. Returns ``(status, body, content_type)``.
+      Issue a form-encoded POST. Returns ``(status, body, content_type)``. An
+      invalid header name or value raises :class:`pygrindvakt.BadRequestError`,
+      as does supplying a client-owned header (see below).
+
+      .. versionchanged:: 0.5.0
+         Refuses client-owned headers.
+
+   **Client-owned headers.** ``get``, ``post_form`` and ``post_json`` frame and
+   address the request themselves, so they refuse a caller-supplied
+   ``Content-Length``, ``Transfer-Encoding``, ``Host``, ``Connection``,
+   ``Expect`` or ``Content-Encoding`` with :class:`pygrindvakt.BadRequestError`
+   before anything is sent. Otherwise a ``Content-Length: 0`` would silently
+   drop a request body (for example a token request's ``client_secret`` and
+   authorization code), and ``Host`` would address the request at a different
+   virtual host than the one connected to. Strip these when forwarding headers
+   from an inbound request.
+
+   .. py:method:: post_json(url: str, body: Any, headers: list[tuple[str, str]] | None = None) -> tuple[int, bytes, str | None]
+
+      Send a JSON body with a POST and return ``(status, body, content_type)``.
+      This lets you call a JSON API without adding or configuring another HTTP
+      library: the request uses this client's timeouts, response-size cap and
+      TLS settings, like every other pygrindvakt request. ``body`` in the
+      result is the raw response bytes, so decode it yourself (for example
+      with ``json.loads``).
+
+      .. code-block:: python
+
+         import json
+         from pygrindvakt import http
+
+         client = http.ReqwestClient(request_timeout=5)
+         status, body, content_type = client.post_json(
+             "https://api.example.com/v1/evaluate",
+             {"subject": "alice", "action": "read"},
+             [("Authorization", "Bearer <token>")],
+         )
+         if status == 200:
+             result = json.loads(body)
+
+      ``body`` is any JSON-compatible Python value (dict, list, tuple, str,
+      int, float, bool, ``None``). Sets, frozensets, deques and other
+      sequence-like objects serialize as arrays and mapping-like objects as
+      objects. It is serialized compactly, dict order is
+      kept and integers are exact (beyond 64 bits too). ``NaN`` / infinity and
+      nesting deeper than 127 levels raise :class:`ValueError`; a value that is not
+      JSON-compatible raises :class:`TypeError`. Nothing is sent in those
+      cases.
+
+      **Content-Type.** ``application/json`` is set by default. If ``headers``
+      supplies a ``Content-Type`` whose media type (parameters ignored,
+      case-insensitive) is ``application/json`` or ``application/*+json``, it
+      is kept as given (for example ``application/json; charset=utf-8`` or
+      ``application/merge-patch+json``). Any other ``Content-Type`` raises
+      :class:`pygrindvakt.BadRequestError`. Exactly one ``Content-Type``
+      header is sent.
+
+      Redirects are never followed (including ``307`` / ``308``), so
+      ``headers`` such as ``Authorization`` are only sent to ``url``. An
+      invalid header name or value raises :class:`pygrindvakt.BadRequestError`,
+      as does supplying a client-owned header such as ``Content-Length`` or
+      ``Host`` (see above).
+      A redirect (``3xx``) or an error status is returned as an ordinary
+      status for you to check. Raises :class:`pygrindvakt.InternalError` on
+      connection failure or when the response body exceeds
+      ``max_response_bytes``.
+
+      .. versionadded:: 0.5.0
 
    Passing ``None`` as the ``http`` argument of any networked function
    selects a process-wide default ``ReqwestClient`` with the default limits.
