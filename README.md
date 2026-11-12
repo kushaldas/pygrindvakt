@@ -1,6 +1,6 @@
 # pygrindvakt
 
-Python bindings for [grindvakt](https://github.com/kushaldas/grindvakt) **0.11.0**, a
+Python bindings for [grindvakt](https://github.com/kushaldas/grindvakt) **0.12.0**, a
 runtime-agnostic Rust library for **OAuth 2.0**, **OpenID Connect** and
 **OpenID Federation 1.1**: an OpenID Provider engine, a Relying Party toolkit,
 federation trust-chain resolution, DPoP (RFC 9449), and the JOSE/key primitives
@@ -146,7 +146,8 @@ State that must be shared across processes:
 - **DPoP replay store**: `dpop.InMemoryReplayStore` or any object with
   `record(jti, ttl_secs) -> bool`.
 - **Outbound HTTP**: `http.ReqwestClient` or any object with `get(url)` /
-  `post_form(url, form, headers)` returning `(status, body, content_type)`.
+  `post_form(url, form, headers)` returning `(status, body, content_type)`;
+  an optional `post_json(url, body, headers)` is used for JSON POSTs.
 
 Python-implemented stores **fail closed**: an exception is logged through
 `sys.unraisablehook` and surfaces to the client as `server_error`.

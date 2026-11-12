@@ -15,6 +15,11 @@
 //!     -> tuple[int, bytes, str | None]
 //! ```
 //!
+//! A client may also provide an optional `post_json(url: str, body: Any,
+//! headers: list[tuple[str, str]]) -> tuple[int, bytes, str | None]`, where
+//! `body` is a JSON-compatible Python object. Without it, JSON POSTs through
+//! that client fail with a configuration error.
+//!
 //! A client may additionally support request headers on GET (needed for
 //! `fetch_userinfo(method="GET")`), decided once when the client is first
 //! used: either `get(url, headers=...)` (a `headers` parameter or `**kwargs`)
@@ -752,13 +757,33 @@ impl ReqwestHttpClient {
         &self,
         url: &str,
         form: &[(String, String)],
-        headers: &[(String, String)],
+        headers: &reqwest::header::HeaderMap,
     ) -> Result<RsFetch, RawFailure> {
         let mut req = self.client().post(url).form(form);
         for (k, v) in headers {
-            req = req.header(k.as_str(), v.as_str());
+            req = req.header(k, v.clone());
         }
         let resp = req
+            .send()
+            .await
+            .map_err(|e| send_failure("POST", url, &e))?;
+        into_fetch("POST", url, resp, self.max_response_bytes).await
+    }
+
+    /// POST an already-serialized JSON body. The caller supplies the
+    /// `Content-Type` in `headers`. Serialization is by hand: the binding's
+    /// reqwest has no `json` feature.
+    async fn post_json_raw(
+        &self,
+        url: &str,
+        body: Vec<u8>,
+        headers: reqwest::header::HeaderMap,
+    ) -> Result<RsFetch, RawFailure> {
+        let resp = self
+            .client()
+            .post(url)
+            .headers(headers)
+            .body(body)
             .send()
             .await
             .map_err(|e| send_failure("POST", url, &e))?;
@@ -811,6 +836,77 @@ fn header_map(headers: &[(String, String)]) -> grindvakt::Result<reqwest::header
         }
         map.append(name, value);
     }
+    // The client frames the request and addresses it from `url`. A caller
+    // `Content-Length: 0` would silently drop a request body (a token request's
+    // `client_secret` and code), and `Host` would misdirect the request at the
+    // destination, so none of these may be supplied.
+    use reqwest::header::{
+        CONNECTION, CONTENT_ENCODING, CONTENT_LENGTH, EXPECT, HOST, TRANSFER_ENCODING,
+    };
+    if [
+        CONTENT_LENGTH,
+        TRANSFER_ENCODING,
+        HOST,
+        CONNECTION,
+        EXPECT,
+        CONTENT_ENCODING,
+    ]
+    .iter()
+    .any(|n| map.contains_key(n))
+    {
+        return Err(RsError::BadRequest(
+            "Content-Length, Transfer-Encoding, Host, Connection, Expect and \
+             Content-Encoding are set by the client and cannot be supplied"
+                .into(),
+        ));
+    }
+    Ok(map)
+}
+
+/// Whether a `Content-Type` value's media type (parameters ignored,
+/// case-insensitive) is `application/json` or `application/*+json`.
+fn is_json_media_type(value: &str) -> bool {
+    let essence = value
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    match essence.strip_prefix("application/") {
+        Some("json") => true,
+        Some(sub) => sub.len() > "+json".len() && sub.ends_with("+json") && !sub.contains('/'),
+        None => false,
+    }
+}
+
+/// Headers for a JSON POST with exactly one `Content-Type`: a caller-supplied
+/// JSON media type is kept, any other is a `BadRequest`, none gets
+/// `application/json`.
+fn json_post_headers(
+    headers: &[(String, String)],
+) -> grindvakt::Result<reqwest::header::HeaderMap> {
+    use reqwest::header::{HeaderValue, CONTENT_TYPE};
+    let mut map = header_map(headers)?;
+    let mut types = map.get_all(CONTENT_TYPE).iter();
+    match (types.next(), types.next()) {
+        (None, _) => {
+            map.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        }
+        (Some(v), None) => {
+            if !v.to_str().map(is_json_media_type).unwrap_or(false) {
+                return Err(RsError::BadRequest(
+                    "post_json requires a JSON Content-Type (application/json or \
+                     application/*+json)"
+                        .into(),
+                ));
+            }
+        }
+        (Some(_), Some(_)) => {
+            return Err(RsError::BadRequest(
+                "post_json: more than one Content-Type header supplied".into(),
+            ));
+        }
+    }
     Ok(map)
 }
 
@@ -839,7 +935,20 @@ impl HttpClient for ReqwestCall {
         form: &[(String, String)],
         headers: &[(String, String)],
     ) -> grindvakt::Result<RsFetch> {
-        self.finish(self.client.post_form_raw(url, form, headers).await)
+        let map = header_map(headers)?;
+        self.finish(self.client.post_form_raw(url, form, &map).await)
+    }
+
+    async fn post_json(
+        &self,
+        url: &str,
+        body: &serde_json::Value,
+        headers: &[(String, String)],
+    ) -> grindvakt::Result<RsFetch> {
+        let map = json_post_headers(headers)?;
+        let bytes = serde_json::to_vec(body)
+            .map_err(|e| RsError::BadRequest(format!("post_json body is not serializable: {e}")))?;
+        self.finish(self.client.post_json_raw(url, bytes, map).await)
     }
 }
 
@@ -848,7 +957,7 @@ const DEFAULT_MAX_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 /// The built-in outbound HTTP client (reqwest + rustls).
 ///
 /// Never follows redirects, enforces connect/read/total timeouts and a
-/// streaming response-size cap. Also exposes `get` / `post_form` so it
+/// streaming response-size cap. Also exposes `get` / `post_form` / `post_json` so it
 /// satisfies the Python `HttpClient` protocol itself.
 ///
 /// Thread safety: the class is `frozen` and shares its state behind an `Arc`,
@@ -947,6 +1056,52 @@ impl ReqwestClient {
             crate::runtime::block_on(
                 py,
                 async move { client.post_form(&url, &form, &headers).await },
+            )?
+            .map_err(|e| failures.err(py, e))?;
+        Ok((r.status, PyBytes::new(py, &r.body), r.content_type))
+    }
+
+    /// Send a JSON body with a POST. Returns `(status, body, content_type)`.
+    ///
+    /// Lets you call a JSON API without another HTTP library, using this
+    /// client's timeouts, response-size cap and TLS settings. `body` in the
+    /// result is the raw response bytes: decode it yourself (`json.loads`).
+    ///
+    /// `body` is any JSON-compatible Python value (dict, list, tuple, str,
+    /// int, float, bool, None), serialized compactly with dict order kept and
+    /// integers exact. NaN / infinity raise `ValueError`, nesting deeper than
+    /// 127 levels (`MAX_JSON_DEPTH` in `convert.rs`) raises `ValueError`, and a value that is not JSON-compatible raises
+    /// `TypeError`; nothing is sent in those cases.
+    ///
+    /// Content-Type: `application/json` is set unless `headers` supplies one
+    /// whose media type is `application/json` or `application/*+json`
+    /// (parameters and case ignored), which is kept. Any other Content-Type
+    /// raises `BadRequestError`. Redirects are never followed (including 307 /
+    /// 308), so headers such as `Authorization` only go to `url`. An invalid
+    /// header name or value raises `BadRequestError`, as does supplying
+    /// `Content-Length`, `Transfer-Encoding`, `Host`, `Connection`, `Expect` or
+    /// `Content-Encoding`
+    /// (the client frames and addresses the request itself).
+    #[pyo3(signature = (url, body, headers = None))]
+    fn post_json<'py>(
+        &self,
+        py: Python<'py>,
+        url: String,
+        body: &Bound<'py, PyAny>,
+        headers: Option<Vec<(String, String)>>,
+    ) -> PyResult<(u16, Bound<'py, PyBytes>, Option<String>)> {
+        // Convert while holding the GIL, before releasing it for I/O.
+        let body: serde_json::Value = from_py(body)?;
+        let failures = Failures::default();
+        let client = ReqwestCall {
+            client: self.inner.clone(),
+            failures: failures.clone(),
+        };
+        let headers = headers.unwrap_or_default();
+        let r =
+            crate::runtime::block_on(
+                py,
+                async move { client.post_json(&url, &body, &headers).await },
             )?
             .map_err(|e| failures.err(py, e))?;
         Ok((r.status, PyBytes::new(py, &r.body), r.content_type))
@@ -1153,6 +1308,33 @@ impl HttpClient for PyHttpClient {
                 .and_then(|r| extract_fetch(&r))
                 .map(|f| self.ok(f))
                 .map_err(|e| self.fail(py, obj, "HttpClient.post_form", e))
+        })
+    }
+
+    async fn post_json(
+        &self,
+        url: &str,
+        body: &serde_json::Value,
+        headers: &[(String, String)],
+    ) -> grindvakt::Result<RsFetch> {
+        Python::attach(|py| {
+            let obj = self.obj.bind(py);
+            if !obj
+                .getattr("post_json")
+                .map(|a| a.is_callable())
+                .unwrap_or(false)
+            {
+                return Err(RsError::Config(
+                    "this HttpClient does not support post_json: it must provide \
+                     `post_json(url, body, headers)`"
+                        .into(),
+                ));
+            }
+            to_py(py, body)
+                .and_then(|b| obj.call_method1("post_json", (url, b, headers.to_vec())))
+                .and_then(|r| extract_fetch(&r))
+                .map(|f| self.ok(f))
+                .map_err(|e| self.fail(py, obj, "HttpClient.post_json", e))
         })
     }
 }

@@ -1185,6 +1185,7 @@ def test_userinfo_get_real_server_sends_authorization():
         assert out == {"sub": "alice"} and seen == ["Bearer tok"]
     finally:
         srv.shutdown()
+        srv.server_close()
 
 
 def _jwt_claims(**over):

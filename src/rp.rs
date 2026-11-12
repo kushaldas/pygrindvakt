@@ -1723,6 +1723,16 @@ impl HttpClient for HeaderProbe {
         let r = self.inner.get_with_headers(url, headers).await;
         self.note(r)
     }
+
+    async fn post_json(
+        &self,
+        url: &str,
+        body: &serde_json::Value,
+        headers: &[(String, String)],
+    ) -> grindvakt::Result<HttpFetchResponse> {
+        let r = self.inner.post_json(url, body, headers).await;
+        self.note(r)
+    }
 }
 
 /// RAII token for the single in-flight fetch; see `begin_flight`. Shared by

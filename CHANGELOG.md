@@ -7,6 +7,66 @@ needed to track the upstream `grindvakt` library and correct protocol or
 security handling. `pygrindvakt` is a thin PyO3 binding; most entries reflect
 adopting a change made in `grindvakt` / `jose-rs` and surfacing it to Python.
 
+## [Unreleased]
+
+### Added
+
+- `ReqwestClient.post_json(url, body, headers=None)`: call a JSON API with a
+  POST without adding or configuring another HTTP library. It uses the
+  client's timeouts, response-size cap and TLS settings and returns
+  `(status, body, content_type)`, where `body` is the raw response bytes
+  (decode it with `json.loads`). The request body is serialized compactly,
+  dict order is kept and integers are exact; NaN / infinity and over-deep
+  nesting raise `ValueError`. `Content-Type: application/json` is set unless the caller
+  supplies an `application/json` or `application/*+json` type (kept); any other
+  `Content-Type` raises `BadRequestError`, as do client-owned headers (see
+  Fixed). Redirects are never followed (including 307 / 308), the response size
+  cap applies, and an invalid header raises `BadRequestError`.
+- Custom HTTP clients may provide an optional `post_json(url, body, headers)`
+  method. Clients without it keep working; a JSON POST through such a client
+  raises `ConfigError`. The required protocol (`get` and `post_form`) is
+  unchanged.
+
+### Changed
+
+- Bind `grindvakt` 0.12.0. Its only change is a new HTTP client hook that no
+  `grindvakt` API calls yet, so behavior is unchanged. No dependency, MSRV or
+  security changes.
+
+### Fixed
+
+- `ReqwestClient.get` (with headers), `post_form` and `post_json` now refuse a
+  caller-supplied `Content-Length`, `Transfer-Encoding`, `Host`, `Connection`,
+  `Expect` or `Content-Encoding` with `BadRequestError` before anything is
+  sent. These were forwarded verbatim, so a `Content-Length: 0` silently
+  dropped a request body (such as a token request's `client_secret` and code)
+  and a `Host` header addressed the request at another virtual host. Code that
+  forwards inbound request headers must strip these. `post_form` also now
+  reports an invalid header name or value as `BadRequestError` instead of a
+  transport error.
+- NaN or infinity anywhere in the data handed to JSON conversion (including
+  inside sets, frozensets, deques, other sequence- and mapping-like
+  containers, dataclass fields, and dict/list/tuple subclasses that override
+  their accessors) now raises `ValueError` instead of silently becoming
+  `null`. Previously, for example, a NaN inside a set in `jwt.sign` claims or
+  a `post_json` body was signed or sent as `null`. Nesting deeper than 127
+  levels also raises `ValueError`.
+- A dict using the reserved key `$serde_json::private::Number` is now rejected
+  with `ValueError` instead of being collapsed into a number (siblings were
+  dropped and the NaN check skipped). The one exception: a dict with exactly
+  one such entry holding a canonical digit string beyond 128 bits has the shape
+  of a genuine big integer, which `pythonize` gives no way to tell apart, so it
+  is accepted as that integer. Its length is held to
+  `sys.get_int_max_str_digits()` like a real int, so it cannot exceed that limit. The maximum JSON
+  nesting depth is now 127 levels; a 128-level body that the converter
+  previously accepted is refused.
+- A `bytes` value (or `bytes` nested in the data) passed to JSON conversion,
+  for example `jwt.sign` claims, `Response.json` or `ReqwestClient.post_json`,
+  now raises `TypeError` instead of a bare `Exception`.
+- An integer longer than Python's `sys.get_int_max_str_digits()` limit (4300
+  digits by default) now raises `ValueError` saying so, instead of an error
+  about the reserved big-integer key. Raise the limit to convert such integers.
+
 ## [0.4.1] - 2026-11-10
 
 ### Changed

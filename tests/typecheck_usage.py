@@ -80,6 +80,10 @@ def use_all() -> None:
     custom = TupleClient()
     fetch = FetchResponseClient()
 
+    status, body, content_type = reqwest.post_json("https://op.example.com/x", {"a": [1, None]}, [("X-A", "b")])
+    reqwest.post_json("https://op.example.com/x", "scalar")
+    _ = (status, body, content_type)
+
     md = rp.discover(reqwest, "https://op.example.com")
     rp.discover(None, "https://op.example.com")
     rp.discover(custom, "https://op.example.com")
