@@ -215,6 +215,18 @@ CYCLIC_BUILDERS = {
     "userdict": _cyc_userdict,
     "dict_in_deque": _cyc_dict_in_deque,
     "deep_deque": _deep_deque,
+}
+
+# Malformed or cyclic big-integer token maps: refused without recursing, as a
+# misuse of the reserved key (a ValueError, never a stack overflow).
+TOKEN_LOOP_BUILDERS = {
     "token_cycle": _token_cycle,
     "token_chain": _token_chain,
 }
+
+
+def wrap_in_lists(leaf: Any, n: int) -> Any:
+    """``leaf`` inside ``n`` nested lists."""
+    for _ in range(n):
+        leaf = [leaf]
+    return leaf

@@ -13,8 +13,10 @@ from exotic_cases import (
     CYCLIC_BUILDERS,
     REJECT_CASES,
     RESERVED_KEY_CASES,
+    TOKEN_LOOP_BUILDERS,
     TOKEN_SHAPE_ACCEPT,
     nested,
+    wrap_in_lists,
 )
 from pygrindvakt import federation, jwt
 
@@ -89,6 +91,26 @@ def test_self_referential_list_refused(op_key):
 def test_cyclic_or_deep_non_list_container_refused(op_key, name):
     with pytest.raises(ValueError, match="nested too deeply"):
         jwt.sign(op_key, {"a": CYCLIC_BUILDERS[name]()})
+
+
+@pytest.mark.parametrize("name", sorted(TOKEN_LOOP_BUILDERS))
+def test_cyclic_or_chained_token_map_refused_without_recursing(op_key, name):
+    with pytest.raises(ValueError, match="reserved"):
+        jwt.sign(op_key, {"a": TOKEN_LOOP_BUILDERS[name]()})
+
+
+@pytest.mark.parametrize("leaf", [1, 2**128, -(2**200), 10**400])
+def test_big_int_counts_like_any_scalar_at_the_depth_limit(op_key, leaf):
+    # The claims dict is level 1, so 126 lists is the deepest accepted nesting
+    # for a scalar and 127 is refused: a big int (pythonize's token map) must
+    # land on the same boundary as the plain `1`.
+    ok = wrap_in_lists(leaf, 126)
+    out = roundtrip(op_key, {"a": ok})["a"]
+    for _ in range(126):
+        out = out[0]
+    assert out == leaf
+    with pytest.raises(ValueError, match="nested too deeply"):
+        jwt.sign(op_key, {"a": wrap_in_lists(leaf, 127)})
 
 
 def test_very_deep_list_refused(op_key):

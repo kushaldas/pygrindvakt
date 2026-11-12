@@ -13,7 +13,9 @@ from exotic_cases import (
     CYCLIC_BUILDERS,
     REJECT_CASES,
     RESERVED_KEY_CASES,
+    TOKEN_LOOP_BUILDERS,
     nested,
+    wrap_in_lists,
 )
 from pygrindvakt import BadRequestError, http
 
@@ -760,6 +762,32 @@ def test_post_json_self_referential_list_never_sent():
         with pytest.raises(ValueError, match="nested too deeply"):
             http.ReqwestClient().post_json(f"{base}/p", loop)
         assert seen == []
+    finally:
+        _stop(srv)
+
+
+@pytest.mark.parametrize("name", sorted(TOKEN_LOOP_BUILDERS))
+def test_post_json_cyclic_or_chained_token_map_never_sent(name):
+    srv, base, seen = _json_server()
+    try:
+        with pytest.raises(ValueError, match="reserved"):
+            http.ReqwestClient().post_json(f"{base}/p", TOKEN_LOOP_BUILDERS[name]())
+        assert seen == []
+    finally:
+        _stop(srv)
+
+
+@pytest.mark.parametrize("leaf", [1, 2**128, -(2**200)])
+def test_post_json_big_int_counts_like_any_scalar_at_the_depth_limit(leaf):
+    # post_json has no claims dict: 127 lists is the deepest accepted nesting.
+    srv, base, seen = _json_server()
+    try:
+        c = http.ReqwestClient()
+        assert c.post_json(f"{base}/p", wrap_in_lists(leaf, 127))[0] == 200
+        assert seen[0]["body"] == (b"[" * 127) + str(leaf).encode() + (b"]" * 127)
+        with pytest.raises(ValueError, match="nested too deeply"):
+            c.post_json(f"{base}/p", wrap_in_lists(leaf, 128))
+        assert len(seen) == 1
     finally:
         _stop(srv)
 

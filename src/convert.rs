@@ -176,12 +176,10 @@ impl<'de> de::Visitor<'de> for CheckedSeed<'_> {
     }
 
     fn visit_map<A: de::MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
-        // Before any descent, including the big-integer token branch below:
-        // a chain of token maps must not recurse without bound.
-        if self.depth >= MAX_JSON_DEPTH {
-            return Err(self.reject(TOO_DEEP_MSG));
-        }
         let Some(first) = map.next_key::<String>()? else {
+            if self.depth >= MAX_JSON_DEPTH {
+                return Err(self.reject(TOO_DEEP_MSG));
+            }
             return Ok(serde_json::Value::Object(serde_json::Map::new()));
         };
         if first == NUMBER_TOKEN {
@@ -192,10 +190,15 @@ impl<'de> de::Visitor<'de> for CheckedSeed<'_> {
             // entry, a canonical digit string beyond 128 bits, within the int
             // digit limit) cannot be told apart from a real big int: pythonize
             // offers no discriminator, so it is accepted as that integer.
-            let value = map.next_value_seed(self.child())?;
-            let serde_json::Value::String(digits) = value else {
-                return Err(self.reject(RESERVED_KEY_MSG));
-            };
+            //
+            // The token map is a number, not a JSON container, so it does not
+            // count towards the depth limit. Its value is read as a `String`
+            // only: pythonize rejects a dict or sequence there without
+            // descending, so malformed or cyclic token maps cannot recurse and
+            // need no depth bound of their own.
+            let digits: String = map
+                .next_value()
+                .map_err(|_| self.reject(RESERVED_KEY_MSG))?;
             if map.next_key::<String>()?.is_some() {
                 return Err(self.reject(RESERVED_KEY_MSG));
             }
@@ -219,6 +222,9 @@ impl<'de> de::Visitor<'de> for CheckedSeed<'_> {
             return serde_json::from_str::<serde_json::Number>(&digits)
                 .map(serde_json::Value::Number)
                 .map_err(|_| self.reject(RESERVED_KEY_MSG));
+        }
+        if self.depth >= MAX_JSON_DEPTH {
+            return Err(self.reject(TOO_DEEP_MSG));
         }
         let mut out = serde_json::Map::new();
         out.insert(first, map.next_value_seed(self.child())?);
