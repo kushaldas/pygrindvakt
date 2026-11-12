@@ -153,6 +153,12 @@ version is what ``Cargo.lock`` pins).
    * - pygrindvakt
      - grindvakt
      - Notes
+   * - 0.5.0
+     - 0.12.0
+     - binds core 0.12 (Rust 1.89): ``ReqwestClient.post_json`` for JSON POSTs without another
+       HTTP library; ``get``, ``post_form`` and ``post_json`` refuse client-owned headers
+       (``Content-Length``, ``Host`` ...); the JSON conversion guard now rejects NaN and
+       infinity in every container type and bounds nesting at 127 levels.
    * - 0.4.1
      - 0.11.0
      - binds core 0.11 (Rust 1.89), a dependency-only release: stable ``rsa`` 0.10.0

@@ -1470,7 +1470,7 @@ dependencies = [
 
 [[package]]
 name = "pygrindvakt"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "grindvakt",

@@ -7,7 +7,7 @@ needed to track the upstream `grindvakt` library and correct protocol or
 security handling. `pygrindvakt` is a thin PyO3 binding; most entries reflect
 adopting a change made in `grindvakt` / `jose-rs` and surfacing it to Python.
 
-## [Unreleased]
+## [0.5.0] - 2026-11-12
 
 ### Added
 
