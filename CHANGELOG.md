@@ -16,8 +16,10 @@ adopting a change made in `grindvakt` / `jose-rs` and surfacing it to Python.
   `request_object_signing_alg`, `token_endpoint_auth_signing_alg`,
   `id_token_encrypted_response_alg`/`_enc`,
   `userinfo_encrypted_response_alg`/`_enc`) from Python. The provider enforces
-  the `private_key_jwt` algorithm pin and encrypts the ID token and UserInfo
-  response for the client. `Client.from_dict` accepts the nested
+  the `private_key_jwt` algorithm pin and encrypts the ID token for the
+  client. The `userinfo_encrypted_response_*` keys are stored but not applied:
+  `Provider.userinfo()` returns JSON claims and core's encrypting
+  `signed_userinfo` is not bound yet. `Client.from_dict` accepts the nested
   `response_policy` registration (`null` means unset) and rejects unknown, non-string or empty entries
   with `ValueError`; it contributes to `registration_fingerprint()`.
 - `Client.registration_fingerprint()`: the digest to pass as

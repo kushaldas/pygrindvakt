@@ -96,7 +96,9 @@ class Client:
           encrypts the signed ID token to the client's ``jwks``. ``enc``
           defaults to ``A128CBC-HS256``.
         - ``userinfo_encrypted_response_alg`` / ``userinfo_encrypted_response_enc``:
-          the same for signed UserInfo responses.
+          the same for signed UserInfo responses. Stored but NOT applied:
+          ``Provider.userinfo()`` returns JSON claims and core's
+          ``signed_userinfo`` is not bound, so UserInfo is never encrypted.
         """
     def allows_redirect(self, uri: str) -> bool:
         """Whether ``uri`` exactly matches a registered redirect URI."""
