@@ -135,11 +135,11 @@ Client
              ``A128CBC-HS256`` when only the ``alg`` is registered.
          * - ``userinfo_encrypted_response_alg``
            - JWE key management algorithm for the signed UserInfo response.
-             **Stored but not applied**: ``Provider.userinfo()`` returns JSON
-             claims, and core's ``signed_userinfo`` is not bound yet.
+             Applied by ``Provider.signed_userinfo()``; ``Provider.userinfo()``
+             always returns plain JSON.
          * - ``userinfo_encrypted_response_enc``
-           - UserInfo content encryption algorithm, same default. Not applied
-             (see above).
+           - UserInfo content encryption algorithm, same default. Applied
+             by ``Provider.signed_userinfo()``.
 
    .. py:method:: allows_redirect(uri: str) -> bool
 

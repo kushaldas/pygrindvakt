@@ -53,10 +53,10 @@ framework integrations cannot accidentally omit deployment-critical choices.
        non-string values raise ``ValueError``.
      - The provider enforces the policy: the ``private_key_jwt`` algorithm
        pin (a ``kid`` is then required) and ID token encryption to the
-       client's registered key. ``userinfo_encrypted_response_*`` is stored
-       but **not applied**: :meth:`~pygrindvakt.provider.Provider.userinfo`
-       returns JSON claims, and core's ``signed_userinfo`` (the only method
-       that encrypts) is not bound yet. Do not rely on UserInfo encryption.
+       client's registered key. ``userinfo_encrypted_response_*`` is applied
+       by :meth:`~pygrindvakt.provider.Provider.signed_userinfo`;
+       :meth:`~pygrindvakt.provider.Provider.userinfo` always returns plain
+       JSON.
        Without the policy a client could sign assertions with any algorithm
        and receive plaintext-signed ID tokens.
      - None; register the policy on the client.

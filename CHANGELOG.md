@@ -16,9 +16,16 @@ adopting a change made in `grindvakt` / `jose-rs` and surfacing it to Python.
   *, acr=None, auth_time=None)`: release different claims to the ID token and
   to UserInfo. No scope filter is applied; the code seals the registration
   fingerprint and an explicit UserInfo claim set.
+- `Provider.signed_userinfo(access_token, presented_jkt=None)`: UserInfo as a
+  signed JWT (`typ` `userinfo+jwt`, `aud` = client id, `exp` capped at five
+  minutes), or a JWE when the client registered
+  `userinfo_encrypted_response_alg`. Serve it as `application/jwt`.
 
 ### Security
 
+- `userinfo_encrypted_response_alg`/`_enc` are now applied by
+  `Provider.signed_userinfo`; docs no longer describe them as stored but not
+  applied. `Provider.userinfo` still returns plain JSON.
 - Documented hand-sealing authorization codes as an advanced path: omitting
   `registration_digest` skips the registration check and
   `userinfo_claims=None` over-releases claims at UserInfo. Use

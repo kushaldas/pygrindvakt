@@ -475,6 +475,12 @@ def use_authorized_claims(op: provider.Provider, req: request.AuthorizationReque
     del idc, uic, resp
 
 
+def use_signed_userinfo(op: provider.Provider) -> None:
+    jws: str = op.signed_userinfo("tok")
+    jws2: str = op.signed_userinfo("tok", presented_jkt="jkt")
+    del jws, jws2
+
+
 def use_testing(op: provider.Provider, key: keys.SigningKey) -> None:
     """``pygrindvakt.testing`` is type-checked here, so it is covered by ``--strict``."""
     route: testing.FetchResult = (200, b"{}", "application/json", (("Cache-Control", "max-age=60"),))

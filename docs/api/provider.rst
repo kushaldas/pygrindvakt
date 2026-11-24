@@ -38,7 +38,7 @@ Constants
    :value: ["iss", "sub", "aud", "exp", "iat", "nbf", "jti", "nonce", "auth_time", "acr", "azp", "at_hash", "c_hash"]
 
    Claim names that :meth:`Provider.authorization_redirect` refuses in
-   ``extra_claims``.
+   ``extra_claims`` and :class:`AuthorizedClaims` refuses in either map.
 
 AuthorizedClaims
 ----------------
@@ -264,6 +264,25 @@ Provider
       :func:`pygrindvakt.dpop.validate_resource_proof`) must match the
       token's ``cnf.jkt``; a bound token presented as plain Bearer is
       rejected. Raises :class:`pygrindvakt.OAuthError`.
+
+   .. py:method:: signed_userinfo(access_token: str, presented_jkt: str | None = None) -> str
+
+      Like :meth:`userinfo`, but return the response as a signed JWT: a
+      compact JWS with ``typ`` ``userinfo+jwt``, ``iss``, ``aud`` set to the
+      client id and ``exp`` at the earlier of the access token's expiry and
+      five minutes from now. A client registered with
+      ``userinfo_encrypted_response_alg`` (and optionally ``_enc``) receives
+      a compact JWE of that JWS instead. Serve the result with
+      ``content-type: application/jwt``. Relying parties verify it with
+      :func:`pygrindvakt.rp.fetch_userinfo` using ``trust="typed"`` and
+      ``typ="userinfo+jwt"``.
+
+      Token, scope and DPoP failures raise :class:`pygrindvakt.OAuthError`
+      with the same codes as :meth:`userinfo`. A client that is no longer
+      registered, or unusable claims, raise ``invalid_grant``; a signing or
+      encryption failure raises ``server_error``.
+
+      .. versionadded:: 0.7.0
 
    .. py:method:: authenticate_client(form: list[tuple[str, str]], token_url: str, auth_header: str | None = None) -> Client
 

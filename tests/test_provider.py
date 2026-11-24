@@ -1462,3 +1462,137 @@ def test_authorized_claims_refuses_crlf_redirect_uri(op_key):
             req, "alice", provider.AuthorizedClaims(id_token={}, userinfo={})
         )
     assert ei.value.code == "invalid_request"
+
+
+# --- Provider.signed_userinfo -------------------------------------------------
+
+
+def _openid_token(op, scope="openid email", client_id="demo", secret="s3cret"):
+    verifier = util.random_token(32)
+    req = request.AuthorizationRequest.from_params(
+        [
+            ("client_id", client_id),
+            ("response_type", "code"),
+            ("redirect_uri", REDIRECT_URI),
+            ("scope", scope),
+            ("nonce", "n"),
+            ("code_challenge", pkce.s256_challenge(verifier)),
+            ("code_challenge_method", "S256"),
+        ]
+    )
+    op.validate_authorization_request(req)
+    resp = op.authorization_redirect(req, "alice", {"email": ["alice@example.com"]})
+    return op.handle_token_request(
+        [
+            ("grant_type", "authorization_code"),
+            ("code", code_from_redirect(resp)),
+            ("redirect_uri", REDIRECT_URI),
+            ("code_verifier", verifier),
+        ],
+        TOKEN_URL,
+        auth_header=basic_auth(client_id, secret),
+    )
+
+
+class _JwtUserinfoClient:
+    def __init__(self, body):
+        self.body = body
+
+    def get(self, url, headers=None):
+        return 200, self.body.encode(), "application/jwt"
+
+    def post_form(self, url, form, headers):
+        return 200, self.body.encode(), "application/jwt"
+
+
+def test_signed_userinfo_round_trips_through_rp(op):
+    tr = _openid_token(op)
+    jws = op.signed_userinfo(tr.access_token)
+    assert jws.count(".") == 2
+    assert jwt.peek_header(jws)["typ"] == "userinfo+jwt"
+    claims = rp.fetch_userinfo(
+        _JwtUserinfoClient(jws),
+        "https://op.example.com/userinfo",
+        tr.access_token,
+        "alice",
+        ISSUER,
+        trust="typed",
+        typ="userinfo+jwt",
+        jwks=op.jwks_document(),
+        client_id="demo",
+        allowed_algorithms=["ES256"],
+    )
+    assert claims["sub"] == "alice" and claims["email"] == "alice@example.com"
+    assert claims["iss"] == ISSUER and claims["aud"] == "demo"
+
+
+def test_signed_userinfo_exp_capped_at_five_minutes(op):
+    tr = _openid_token(op)
+    claims = jwt.peek_claims_unverified(op.signed_userinfo(tr.access_token))
+    assert claims["exp"] <= claims["iat"] + 300
+
+
+def test_signed_userinfo_encrypted_for_registered_client(op_key):
+    enc_jwk = keys.generate_ec_jwk("P-256")
+    enc_jwk["use"] = "enc"
+    enc_jwk["kid"] = "enc-1"
+    c = client.Client(
+        "demo",
+        client_secret="s3cret",
+        redirect_uris=[REDIRECT_URI],
+        jwks={"keys": [enc_jwk]},
+        response_policy={"userinfo_encrypted_response_alg": "ECDH-ES"},
+    )
+    op = _pinned_provider(op_key, [c])
+    tr = _openid_token(op)
+    jwe = op.signed_userinfo(tr.access_token)
+    assert jwe.count(".") == 4
+    header = json.loads(base64.urlsafe_b64decode(jwe.split(".")[0] + "=="))
+    assert header["alg"] == "ECDH-ES" and header["enc"] == "A128CBC-HS256"
+    # The plain endpoint is unaffected.
+    assert isinstance(op.userinfo(tr.access_token), dict)
+    assert op.userinfo(tr.access_token)["sub"] == "alice"
+
+
+def test_signed_userinfo_rejects_bad_tokens(op):
+    tr = _openid_token(op, scope="email", client_id="demo")  # no openid scope
+    with pytest.raises(OAuthError) as ei:
+        op.signed_userinfo(tr.access_token)
+    with pytest.raises(OAuthError) as ei2:
+        op.userinfo(tr.access_token)
+    assert ei.value.code == ei2.value.code == "access_denied"
+    with pytest.raises(OAuthError) as ei3:
+        op.signed_userinfo("not-a-token")
+    with pytest.raises(OAuthError) as ei4:
+        op.userinfo("not-a-token")
+    assert ei3.value.code == ei4.value.code == "access_denied"
+
+
+def test_signed_userinfo_client_removed_is_invalid_grant(op_key, demo_client):
+    class Store:
+        def __init__(self, *cs):
+            self.d = {c.client_id: c for c in cs}
+
+        def get(self, client_id):
+            return self.d.get(client_id)
+
+        def put(self, c):
+            self.d[c.client_id] = c
+
+        def put_with_ttl(self, c, ttl):
+            self.d[c.client_id] = c
+
+    store = Store(demo_client)
+    op = provider.Provider(
+        metadata.ProviderMetadata(ISSUER),
+        op_key,
+        store,
+        tokens.TokenCodec("op-secret"),
+        token_use_store=provider.InMemoryTokenUseStore(),
+    )
+    tr = _openid_token(op)
+    assert op.signed_userinfo(tr.access_token).count(".") == 2
+    del store.d["demo"]
+    with pytest.raises(OAuthError) as ei:
+        op.signed_userinfo(tr.access_token)
+    assert ei.value.code == "invalid_grant"

@@ -724,6 +724,27 @@ impl Provider {
         to_py(py, &v)
     }
 
+    /// Handle a UserInfo request and return the response as a signed JWT.
+    ///
+    /// Same checks as `userinfo`. The compact JWS has `typ` `userinfo+jwt`,
+    /// `iss`, `aud` = client_id and `exp` = min(access token exp, now + 300).
+    /// A client registered with `userinfo_encrypted_response_alg` receives a
+    /// compact JWE instead. Serve it with `content-type: application/jwt`.
+    #[pyo3(signature = (access_token, presented_jkt = None))]
+    fn signed_userinfo(
+        &self,
+        py: Python<'_>,
+        access_token: String,
+        presented_jkt: Option<String>,
+    ) -> PyResult<String> {
+        let p = self.inner.clone();
+        let r = crate::runtime::block_on(py, async move {
+            p.signed_userinfo(&access_token, presented_jkt.as_deref())
+                .await
+        })?;
+        r.map_err(|e| oauth_err(py, &e))
+    }
+
     /// Authenticate a client from a token-endpoint style request (form +
     /// `Authorization` header) and return the `Client`. Mappings are rejected;
     /// ordered form pairs preserve duplicate names for rejection.

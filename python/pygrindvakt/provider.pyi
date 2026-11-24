@@ -247,6 +247,13 @@ class Provider:
     def userinfo(self, access_token: str, presented_jkt: str | None = ...) -> dict[str, Any]:
         """Require an ``openid``-scoped access token, validate it (and any
         DPoP key binding), and return the subject and scope-filtered claims."""
+    def signed_userinfo(self, access_token: str, presented_jkt: str | None = ...) -> str:
+        """Like :meth:`userinfo`, but return a compact JWS (``typ`` ``userinfo+jwt``,
+        ``iss``, ``aud`` = client_id, ``exp`` = min(access token exp, now + 300)),
+        or a JWE when the client registered ``userinfo_encrypted_response_alg``.
+        Serve it with ``content-type: application/jwt``. Raises ``OAuthError``:
+        token, scope and DPoP failures as for ``userinfo``; ``invalid_grant`` if
+        the client is gone; ``server_error`` on signing or encryption failure."""
     def authenticate_client(
         self,
         form: list[tuple[str, str]],
