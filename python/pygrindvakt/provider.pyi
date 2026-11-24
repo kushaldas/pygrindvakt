@@ -254,6 +254,12 @@ class Provider:
         Serve it with ``content-type: application/jwt``. Raises ``OAuthError``:
         token, scope and DPoP failures as for ``userinfo``; ``invalid_grant`` if
         the client is gone; ``server_error`` on signing or encryption failure."""
+    def consume_request_id(self, client_id: str, jti: str, expiry: int) -> None:
+        """Record a verified request object ``jti`` for one-time use by
+        ``client_id``; ``expiry`` is the acceptance deadline in Unix seconds.
+        Raises ``OAuthError``: ``invalid_request`` for an empty or over-512-byte
+        ``jti`` or a past ``expiry``, ``invalid_grant`` on reuse,
+        ``server_error`` on store failure."""
     def authenticate_client(
         self,
         form: list[tuple[str, str]],

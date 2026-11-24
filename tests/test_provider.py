@@ -1596,3 +1596,30 @@ def test_signed_userinfo_client_removed_is_invalid_grant(op_key, demo_client):
     with pytest.raises(OAuthError) as ei:
         op.signed_userinfo(tr.access_token)
     assert ei.value.code == "invalid_grant"
+
+
+def test_consume_request_id_first_use_then_replay(op):
+    exp = int(time.time()) + 300
+    assert op.consume_request_id("demo", "jti-1", exp) is None
+    with pytest.raises(OAuthError) as exc:
+        op.consume_request_id("demo", "jti-1", exp)
+    assert exc.value.code == "invalid_grant"
+    # Same jti for another client is independent.
+    assert op.consume_request_id("svc", "jti-1", exp) is None
+
+
+@pytest.mark.parametrize("jti", ["", "x" * 513])
+def test_consume_request_id_rejects_bad_jti(op, jti):
+    with pytest.raises(OAuthError) as exc:
+        op.consume_request_id("demo", jti, int(time.time()) + 300)
+    assert exc.value.code == "invalid_request"
+
+
+def test_consume_request_id_accepts_512_byte_jti(op):
+    assert op.consume_request_id("demo", "x" * 512, int(time.time()) + 300) is None
+
+
+def test_consume_request_id_rejects_past_expiry(op):
+    with pytest.raises(OAuthError) as exc:
+        op.consume_request_id("demo", "jti-old", int(time.time()) - 1)
+    assert exc.value.code == "invalid_request"

@@ -745,6 +745,28 @@ impl Provider {
         r.map_err(|e| oauth_err(py, &e))
     }
 
+    /// Record a verified request object `jti` for one-time use by `client_id`.
+    ///
+    /// Call after verifying the request object's signature and binding it to
+    /// the client. `expiry` is the acceptance deadline in Unix seconds. Returns
+    /// `None`; raises `OAuthError`: `invalid_request` for an empty or
+    /// over-512-byte `jti` or an `expiry` not in the future, `invalid_grant`
+    /// on reuse, `server_error` on store failure. Replicas need a shared
+    /// `token_use_store`.
+    fn consume_request_id(
+        &self,
+        py: Python<'_>,
+        client_id: String,
+        jti: String,
+        expiry: u64,
+    ) -> PyResult<()> {
+        let p = self.inner.clone();
+        let r = crate::runtime::block_on(py, async move {
+            p.consume_request_id(&client_id, &jti, expiry).await
+        })?;
+        r.map_err(|e| oauth_err(py, &e))
+    }
+
     /// Authenticate a client from a token-endpoint style request (form +
     /// `Authorization` header) and return the `Client`. Mappings are rejected;
     /// ordered form pairs preserve duplicate names for rejection.

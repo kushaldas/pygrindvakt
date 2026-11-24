@@ -3953,3 +3953,52 @@ def test_compat_provider_info_without_metadata():
         rp.check_rp_compatibility(hand)
     with pytest.raises(TypeError):
         rp.check_rp_compatibility({"issuer": ISSUER})  # type: ignore[arg-type]
+
+
+# --- signed_request_object optional parameters ----------------------------------
+
+
+def _jar_claims(prov, rpc, rp_key, **kw):
+    jar = rp.signed_request_object(prov, rpc, rp_key, "st", "n", **kw)
+    v = jwt.Validation().with_issuer(CLIENT_ID).with_audience(ISSUER)
+    return jwt.verify_with_jwks(rp_key.to_public_jwks(), jar, v)
+
+
+def test_signed_request_object_defaults_omit_optional_params(prov, rpc, rp_key):
+    claims = _jar_claims(prov, rpc, rp_key)
+    for name in ("claims", "prompt", "ui_locales", "acr_values", "max_age"):
+        assert name not in claims
+    assert "https://id.oidc.se/param/signRequest" not in claims
+
+
+def test_signed_request_object_string_params_signed(prov, rpc, rp_key):
+    claims = _jar_claims(prov, rpc, rp_key, prompt="login consent", ui_locales="sv en", acr_values="urn:a urn:b")
+    assert claims["prompt"] == "login consent"
+    assert claims["ui_locales"] == "sv en"
+    assert claims["acr_values"] == "urn:a urn:b"
+    assert claims["state"] == "st"
+
+
+def test_signed_request_object_max_age_is_number(prov, rpc, rp_key):
+    claims = _jar_claims(prov, rpc, rp_key, max_age=0)
+    assert claims["max_age"] == 0
+    assert not isinstance(claims["max_age"], bool)
+
+
+def test_signed_request_object_claims_keep_json_types(prov, rpc, rp_key):
+    wanted = {"id_token": {"acr": {"essential": True, "values": ["urn:a"]}, "auth_time": None}}
+    claims = _jar_claims(prov, rpc, rp_key, claims=wanted)
+    assert claims["claims"] == wanted
+
+
+def test_signed_request_object_sign_request_signed(prov, rpc, rp_key):
+    sr = {"displayName": {"sv": "Avtal", "en": "Contract"}, "signMessage": {"mimeType": "text"}, "n": 3}
+    claims = _jar_claims(prov, rpc, rp_key, sign_request=sr)
+    assert claims["https://id.oidc.se/param/signRequest"] == sr
+
+
+@pytest.mark.parametrize("kw", ["claims", "sign_request"])
+@pytest.mark.parametrize("bad", ["text", ["a"], 1])
+def test_signed_request_object_rejects_non_object(prov, rpc, rp_key, kw, bad):
+    with pytest.raises(TypeError):
+        rp.signed_request_object(prov, rpc, rp_key, "st", "n", **{kw: bad})

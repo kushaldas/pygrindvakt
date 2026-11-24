@@ -300,7 +300,7 @@ Starting the flow
 
    .. versionadded:: 0.3.0
 
-.. py:function:: signed_request_object(provider: ProviderInfo, client: RpClient, key: SigningKey, state: str, nonce: str, code_challenge: str | None = None, *, redirect_uri: str | None = None) -> str
+.. py:function:: signed_request_object(provider: ProviderInfo, client: RpClient, key: SigningKey, state: str, nonce: str, code_challenge: str | None = None, *, redirect_uri: str | None = None, claims: dict[str, Any] | None = None, prompt: str | None = None, ui_locales: str | None = None, acr_values: str | None = None, max_age: int | None = None, sign_request: dict[str, Any] | None = None) -> str
 
    Build a signed request object (RFC 9101, "JAR") carrying the
    authorization-request parameters as JWT claims, signed with ``key``, with
@@ -312,6 +312,18 @@ Starting the flow
    jar})`` alongside the plain parameters. ``key`` must be one of the RP's
    published client keys. ``redirect_uri`` overrides the client's value, as
    in :func:`authorization_url`.
+
+   The keyword arguments ``claims`` (OIDC ``claims`` request), ``prompt``,
+   ``ui_locales``, ``acr_values``, ``max_age`` and ``sign_request`` (sent as
+   ``https://id.oidc.se/param/signRequest``, for Sweden Connect signature
+   requests) are placed inside the signed payload and omitted when ``None``.
+   ``claims`` and ``sign_request`` must be dicts (``TypeError`` otherwise) and
+   keep their JSON types. :func:`begin` does not take them: build the request
+   object yourself and pass it via ``extra={"request": jar}``.
+
+   .. versionchanged:: 0.7.0
+      Added ``claims``, ``prompt``, ``ui_locales``, ``acr_values``,
+      ``max_age`` and ``sign_request``.
 
 Discovery and keys
 ------------------

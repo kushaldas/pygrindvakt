@@ -195,6 +195,12 @@ def signed_request_object(
     code_challenge: str | None = ...,
     *,
     redirect_uri: str | None = ...,
+    claims: dict[str, Any] | None = ...,
+    prompt: str | None = ...,
+    ui_locales: str | None = ...,
+    acr_values: str | None = ...,
+    max_age: int | None = ...,
+    sign_request: dict[str, Any] | None = ...,
 ) -> str: ...
 
 class BeginResult(NamedTuple):

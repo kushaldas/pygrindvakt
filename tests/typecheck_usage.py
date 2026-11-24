@@ -485,6 +485,28 @@ def use_signed_userinfo(op: provider.Provider) -> None:
     del jws, jws2
 
 
+def use_consume_request_id(op: provider.Provider) -> None:
+    op.consume_request_id("demo", "jti-1", 4102444800)
+
+
+def use_signed_request_object_params(info: rp.ProviderInfo, me: rp.RpClient, key: keys.SigningKey) -> None:
+    jar: str = rp.signed_request_object(
+        info,
+        me,
+        key,
+        "st",
+        "n",
+        None,
+        claims={"id_token": {"acr": {"essential": True}}},
+        prompt="login",
+        ui_locales="sv en",
+        acr_values="urn:acr:2",
+        max_age=300,
+        sign_request={"displayName": {"en": "x"}},
+    )
+    del jar
+
+
 def use_testing(op: provider.Provider, key: keys.SigningKey) -> None:
     """``pygrindvakt.testing`` is type-checked here, so it is covered by ``--strict``."""
     route: testing.FetchResult = (200, b"{}", "application/json", (("Cache-Control", "max-age=60"),))

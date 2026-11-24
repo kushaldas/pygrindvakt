@@ -284,6 +284,23 @@ Provider
 
       .. versionadded:: 0.7.0
 
+   .. py:method:: consume_request_id(client_id: str, jti: str, expiry: int) -> None
+
+      Record a verified request object (RFC 9101) identifier for one-time
+      use by ``client_id``: an OP-side JAR replay helper. The binding does
+      not verify request objects; frontends must verify the signature and
+      bind the object to the client themselves, then call this with the
+      ``jti`` and the acceptance deadline ``expiry`` (Unix seconds).
+
+      Returns ``None``. Raises :class:`pygrindvakt.OAuthError`:
+      ``invalid_request`` for an empty or over-512-byte ``jti`` or an
+      ``expiry`` that is not in the future, ``invalid_grant`` on reuse,
+      ``server_error`` on store failure. Replay state lives in the
+      provider's ``token_use_store``; replicas need a shared one (for
+      example :class:`RedisStore`) to enforce single use across processes.
+
+      .. versionadded:: 0.7.0
+
    .. py:method:: authenticate_client(form: list[tuple[str, str]], token_url: str, auth_header: str | None = None) -> Client
 
       Authenticate a client from a token-endpoint style request (form +

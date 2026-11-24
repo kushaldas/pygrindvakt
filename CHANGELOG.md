@@ -26,6 +26,15 @@ adopting a change made in `grindvakt` / `jose-rs` and surfacing it to Python.
   trust marks from `ResolvedEntity.trust_marks` (core stores them raw). Raises
   `AuthnError` `trust_mark_missing` / `trust_mark_invalid`.
 
+- `rp.signed_request_object(..., claims=, prompt=, ui_locales=, acr_values=,
+  max_age=, sign_request=)`: signed Request Object parameters (for example
+  Sweden Connect `signRequest`). `claims` and `sign_request` must be dicts and
+  keep their JSON types. `rp.begin` is unchanged.
+- `Provider.consume_request_id(client_id, jti, expiry)`: OP-side one-time use
+  of a verified request object `jti`. Raises `OAuthError` `invalid_request`
+  (empty or over-512-byte `jti`, past `expiry`) or `invalid_grant` (replay).
+  Use a shared `token_use_store` across replicas.
+
 ### Security
 
 - Trust marks can now be verified. Pass the keys of the trust mark issuer

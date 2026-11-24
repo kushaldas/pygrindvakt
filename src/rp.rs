@@ -784,6 +784,24 @@ fn authorization_url(
     .map_err(err)
 }
 
+/// Require a JSON object for a structured request-object parameter.
+fn json_object_param(
+    obj: Option<&Bound<'_, PyAny>>,
+    name: &str,
+) -> PyResult<Option<serde_json::Value>> {
+    let Some(obj) = obj.filter(|o| !o.is_none()) else {
+        return Ok(None);
+    };
+    let v: serde_json::Value = from_py(obj)?;
+    if !v.is_object() {
+        return Err(PyTypeError::new_err(format!(
+            "{name} must be a dict (JSON object), not {}",
+            json_type_name(&v)
+        )));
+    }
+    Ok(Some(v))
+}
+
 /// Build a signed request object (RFC 9101, "JAR") carrying the
 /// authorization-request parameters as JWT claims, signed with `key`.
 ///
@@ -792,8 +810,14 @@ fn authorization_url(
 /// alongside the plain parameters. `key` must be one of the RP's published
 /// client keys. The object is valid for 300 seconds and carries a `jti`.
 /// `redirect_uri` overrides the client's value, as in `authorization_url`.
+///
+/// The optional `claims`, `prompt`, `ui_locales`, `acr_values`, `max_age` and
+/// `sign_request` (sent as `https://id.oidc.se/param/signRequest`) are
+/// included in the signed payload. `claims` and `sign_request` must be dicts
+/// and keep their JSON types.
 #[pyfunction]
-#[pyo3(signature = (provider, client, key, state, nonce, code_challenge = None, *, redirect_uri = None))]
+#[pyo3(signature = (provider, client, key, state, nonce, code_challenge = None, *, redirect_uri = None, claims = None, prompt = None, ui_locales = None, acr_values = None, max_age = None, sign_request = None))]
+#[allow(clippy::too_many_arguments)]
 fn signed_request_object(
     provider: &ProviderInfo,
     client: &RpClient,
@@ -802,15 +826,30 @@ fn signed_request_object(
     nonce: &str,
     code_challenge: Option<&str>,
     redirect_uri: Option<String>,
+    claims: Option<&Bound<'_, PyAny>>,
+    prompt: Option<String>,
+    ui_locales: Option<String>,
+    acr_values: Option<String>,
+    max_age: Option<u64>,
+    sign_request: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<String> {
     let client = effective_client(client, redirect_uri)?;
-    grp::signed_request_object(
+    let params = grp::RequestObjectParameters {
+        claims: json_object_param(claims, "claims")?,
+        prompt,
+        ui_locales,
+        acr_values,
+        max_age,
+        sign_request: json_object_param(sign_request, "sign_request")?,
+    };
+    grp::signed_request_object_with(
         &provider.inner,
         &client,
         &key.inner,
         state,
         nonce,
         code_challenge,
+        &params,
     )
     .map_err(err)
 }
