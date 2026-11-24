@@ -274,6 +274,11 @@ Instance-level overrides:
   value as trustworthy. Because of this, never use ``code`` to decide whether
   to retry: use ``retryable``, which is not derived from upstream text (an
   upstream sending ``error=transport`` does not make the failure retryable).
+* ``unmet_authentication_requirements`` (``AuthnError``): the provider could
+  not meet a requested authentication requirement (core's
+  ``UnmetAuthenticationRequirements``). Core 0.13 itself never raises it; an
+  application frontend does. It is an authentication failure
+  (``auth_failure`` is ``True``, ``status_hint`` is 401) and is not retryable.
 * ``userinfo_unverifiable`` (``AuthnError``): :func:`pygrindvakt.rp.fetch_userinfo`
   received a signed (``application/jwt``) UserInfo response but was not given
   everything needed to verify it (``jwks``, ``client_id``,

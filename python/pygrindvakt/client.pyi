@@ -44,6 +44,7 @@ class Client:
         scope: str | None = ...,
         subject_type: str | None = ...,
         client_name: str | None = ...,
+        response_policy: dict[str, str] | None = ...,
     ) -> None: ...
     @staticmethod
     def from_dict(d: dict[str, Any]) -> Client:
@@ -51,6 +52,13 @@ class Client:
         registration). Unknown keys raise ``ValueError``."""
     def to_dict(self) -> dict[str, Any]:
         """The client as a dict."""
+    def registration_fingerprint(self) -> str:
+        """Unpadded base64url SHA-256 of the registration snapshot (credentials,
+        keys and redirect URIs all contribute).
+
+        Pass it as ``AuthCodePayload.registration_digest`` when sealing
+        authorization codes yourself. Changing the registration afterwards makes
+        redemption fail with ``invalid_grant``."""
     @property
     def client_id(self) -> str: ...
     @property
@@ -72,6 +80,26 @@ class Client:
     def subject_type(self) -> str: ...
     @property
     def client_name(self) -> str | None: ...
+    @property
+    def response_policy(self) -> dict[str, str]:
+        """The registered response policy: a fresh dict holding only the keys
+        that are set (empty when none is). Keys:
+
+        - ``sector_identifier_uri``: registered URI of the redirect-URI list
+          that establishes a pairwise sector (the application validates the list).
+        - ``request_object_signing_alg``: JWS algorithm the frontend must
+          enforce on signed authorization requests.
+        - ``token_endpoint_auth_signing_alg``: JWS algorithm pin for
+          ``private_key_jwt`` assertions; the assertion must also carry a ``kid``.
+        - ``id_token_encrypted_response_alg`` / ``id_token_encrypted_response_enc``:
+          JWE key management / content encryption algorithms; the provider
+          encrypts the signed ID token to the client's ``jwks``. ``enc``
+          defaults to ``A128CBC-HS256``.
+        - ``userinfo_encrypted_response_alg`` / ``userinfo_encrypted_response_enc``:
+          the same for signed UserInfo responses. Stored but NOT applied:
+          ``Provider.userinfo()`` returns JSON claims and core's
+          ``signed_userinfo`` is not bound, so UserInfo is never encrypted.
+        """
     def allows_redirect(self, uri: str) -> bool:
         """Whether ``uri`` exactly matches a registered redirect URI."""
     def allows_response_type(self, rt: str) -> bool:

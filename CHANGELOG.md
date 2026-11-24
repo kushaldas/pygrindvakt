@@ -7,6 +7,71 @@ needed to track the upstream `grindvakt` library and correct protocol or
 security handling. `pygrindvakt` is a thin PyO3 binding; most entries reflect
 adopting a change made in `grindvakt` / `jose-rs` and surfacing it to Python.
 
+## Unreleased
+
+### Added
+
+- `Client(response_policy=...)` and `Client.response_policy`: register the
+  core 0.13 response policy (`sector_identifier_uri`,
+  `request_object_signing_alg`, `token_endpoint_auth_signing_alg`,
+  `id_token_encrypted_response_alg`/`_enc`,
+  `userinfo_encrypted_response_alg`/`_enc`) from Python. The provider enforces
+  the `private_key_jwt` algorithm pin and encrypts the ID token for the
+  client. The `userinfo_encrypted_response_*` keys are stored but not applied:
+  `Provider.userinfo()` returns JSON claims and core's encrypting
+  `signed_userinfo` is not bound yet. `Client.from_dict` accepts the nested
+  `response_policy` registration (`null` means unset) and rejects unknown, non-string or empty entries
+  with `ValueError`; it contributes to `registration_fingerprint()`.
+- `Client.registration_fingerprint()`: the digest to pass as
+  `AuthCodePayload.registration_digest` when your own code seals
+  authorization codes.
+- `AuthCodePayload` takes `registration_digest` and `userinfo_claims`;
+  `RefreshTokenPayload` takes `userinfo_claims`. All are optional keywords and
+  have matching read-only properties. `userinfo_claims=None` means the UserInfo
+  response uses `claims`; `{}` releases no claims there. `None` and omitted
+  both inherit `claims`; pass `{}` to withhold. `registration_digest`
+  is `None` for codes sealed before 0.6.0, which skip the registration check.
+  It is not shown in `repr`.
+- `ResolvedEntity.trust_marks`: the raw `trust_marks` entries from the trust
+  anchor's signed resolve response (empty if absent). They are not verified;
+  check type, subject, issuer signature and lifetime before trusting one.
+- `OAuthError` accepts `unmet_authentication_requirements`. Core's own
+  known-code list for `AuthorizationResponse.error_known` omits it, so
+  `error_known` is `False` for that value.
+- The core `UnmetAuthenticationRequirements` error is raised as `AuthnError`
+  with `code="unmet_authentication_requirements"`.
+
+### Security
+
+- Authorization codes sealed without a `registration_digest` skip the
+  registration check silently. An OP that seals its own codes must pass
+  `Client.registration_fingerprint()`.
+- New authorization codes are bound to the client's registration fingerprint.
+  If the registration changes between authorization and the token request,
+  including a key or secret rotation, the token endpoint answers
+  `invalid_grant` after client authentication. The client must start a new
+  authorization.
+- `ResolvedEntity.exp` is now the earlier of the resolve response's `exp` and
+  the earliest expiry in its validated trust chain, so a cache bounded by it
+  cannot outlive the chain.
+
+### Changed
+
+- Bind `grindvakt` 0.13.0 and `jose-rs` 0.13.0 (MSRV stays Rust 1.89).
+- Unexpired 0.5.x authorization codes, access tokens and refresh tokens still
+  open with the same secret. Old codes have no registration fingerprint, and
+  old codes and refresh tokens use `claims` for both the ID token and UserInfo.
+- New UserInfo grants no longer carry application mappings to provider-owned
+  names such as `acr` and `auth_time`.
+- Unregistered JWT claims and header parameters are serialized in sorted key
+  order.
+- `"Ed448"` now parses in `jwt.Validation.with_allowed_algorithms`.
+
+### Fixed
+
+- Refresh keeps individually approved claims in their original destination
+  (ID token or UserInfo).
+
 ## [0.5.0] - 2026-11-12
 
 ### Added

@@ -19,6 +19,16 @@ fn claims_map(v: Option<&Bound<'_, PyAny>>) -> PyResult<BTreeMap<String, serde_j
     }
 }
 
+/// Like [`claims_map`] but keeps "not given" (`None`) distinct from an empty map.
+fn opt_claims_map(
+    v: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Option<BTreeMap<String, serde_json::Value>>> {
+    match v {
+        Some(v) if !v.is_none() => Ok(Some(from_py(v)?)),
+        _ => Ok(None),
+    }
+}
+
 /// Payload sealed into an authorization code.
 #[pyclass(
     module = "pygrindvakt.tokens",
@@ -35,7 +45,8 @@ pub struct AuthCodePayload {
 impl AuthCodePayload {
     #[new]
     #[pyo3(signature = (*, client_id, redirect_uri, scope, sub, auth_time, exp, nonce = None,
-                        code_challenge = None, code_challenge_method = None, claims = None, acr = None))]
+                        code_challenge = None, code_challenge_method = None, claims = None, acr = None,
+                        registration_digest = None, userinfo_claims = None))]
     #[allow(clippy::too_many_arguments)]
     fn new(
         client_id: String,
@@ -49,6 +60,8 @@ impl AuthCodePayload {
         code_challenge_method: Option<String>,
         claims: Option<&Bound<'_, PyAny>>,
         acr: Option<String>,
+        registration_digest: Option<String>,
+        userinfo_claims: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
         Ok(Self {
             inner: gt::AuthCodePayload {
@@ -63,6 +76,8 @@ impl AuthCodePayload {
                 auth_time,
                 exp,
                 acr,
+                registration_digest,
+                userinfo_claims: opt_claims_map(userinfo_claims)?,
             },
         })
     }
@@ -119,6 +134,22 @@ impl AuthCodePayload {
     #[getter]
     fn acr(&self) -> Option<&str> {
         self.inner.acr.as_deref()
+    }
+    /// Fingerprint of the client registration the code was issued against;
+    /// `None` for codes sealed before 0.6.0 (the check is skipped for those).
+    #[getter]
+    fn registration_digest(&self) -> Option<&str> {
+        self.inner.registration_digest.as_deref()
+    }
+    /// Claims destined for the UserInfo response. `None` means use `claims`;
+    /// `{}` releases none.
+    #[getter]
+    fn userinfo_claims<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
+        self.inner
+            .userinfo_claims
+            .as_ref()
+            .map(|m| to_py(py, m))
+            .transpose()
     }
     fn __repr__(&self) -> String {
         format!(
@@ -226,7 +257,7 @@ pub struct RefreshTokenPayload {
 impl RefreshTokenPayload {
     #[new]
     #[pyo3(signature = (*, client_id, sub, scope, auth_time, exp, nonce = None, claims = None,
-                        acr = None, cnf_jkt = None))]
+                        acr = None, cnf_jkt = None, userinfo_claims = None))]
     #[allow(clippy::too_many_arguments)]
     fn new(
         client_id: String,
@@ -238,6 +269,7 @@ impl RefreshTokenPayload {
         claims: Option<&Bound<'_, PyAny>>,
         acr: Option<String>,
         cnf_jkt: Option<String>,
+        userinfo_claims: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
         Ok(Self {
             inner: gt::RefreshTokenPayload {
@@ -250,6 +282,7 @@ impl RefreshTokenPayload {
                 exp,
                 acr,
                 cnf_jkt,
+                userinfo_claims: opt_claims_map(userinfo_claims)?,
             },
         })
     }
@@ -298,6 +331,16 @@ impl RefreshTokenPayload {
     #[getter]
     fn cnf_jkt(&self) -> Option<&str> {
         self.inner.cnf_jkt.as_deref()
+    }
+    /// Claims destined for the UserInfo response. `None` means use `claims`;
+    /// `{}` releases none.
+    #[getter]
+    fn userinfo_claims<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
+        self.inner
+            .userinfo_claims
+            .as_ref()
+            .map(|m| to_py(py, m))
+            .transpose()
     }
     fn __repr__(&self) -> String {
         format!(

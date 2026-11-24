@@ -29,7 +29,11 @@ class ResolvedEntity:
     def subject_jwks(self) -> dict[str, Any]:
         """The subject's federation keys; symmetric (``oct``) keys are dropped with a ``UserWarning``."""
     @property
-    def exp(self) -> int | None: ...
+    def exp(self) -> int | None:
+        """Earlier of the resolve response ``exp`` and the earliest expiry in its validated trust chain."""
+    @property
+    def trust_marks(self) -> list[Any]:
+        """Raw trust mark entries from the anchor's resolve response (empty if absent). NOT verified."""
     def __repr__(self) -> str: ...
 
 class CollectionEntity:

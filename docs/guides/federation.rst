@@ -117,10 +117,12 @@ wins; if all fail the last error is raised.
    entity.issuer           # the trust anchor that answered
    entity.metadata         # policy-applied metadata, e.g. entity.metadata["openid_provider"]
    entity.subject_jwks     # the subject's federation keys
-   entity.exp              # how long the anchor vouches; bound your cache by it
+   entity.exp              # earlier of resolve and chain expiry; bound your cache by it
+   entity.trust_marks      # raw entries; verify before trusting
 
 Resolution is several HTTP round trips. Cache the result, keyed by subject,
-for at most ``entity.exp - now`` seconds.
+for at most ``entity.exp - now`` seconds. ``exp`` is the earlier of the resolve
+response's expiry and the earliest expiry in its validated trust chain.
 
 Finding the OIDC keys of a resolved entity
 ------------------------------------------

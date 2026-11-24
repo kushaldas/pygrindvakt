@@ -36,6 +36,22 @@ Codec
       store; ``repr()`` never shows it.
 
    .. py:method:: seal_code(payload: AuthCodePayload) -> str
+
+      When sealing codes yourself, bind them to the registration:
+
+      .. code-block:: python
+
+         payload = AuthCodePayload(
+             client_id=rp.client_id,
+             redirect_uri=redirect_uri,
+             scope="openid",
+             sub="alice",
+             auth_time=now,
+             exp=now + 600,
+             registration_digest=rp.registration_fingerprint(),
+         )
+         code = codec.seal_code(payload)
+
    .. py:method:: open_code(token: str) -> AuthCodePayload
 
       Open an authorization code (checks the type tag and expiry). Raises
@@ -66,7 +82,7 @@ seconds. ``claims`` holds the resolved user claims (already flattened by
 :func:`pygrindvakt.provider.flatten_claims`) that end up in the id_token and
 userinfo response.
 
-.. py:class:: AuthCodePayload(*, client_id: str, redirect_uri: str, scope: str, sub: str, auth_time: int, exp: int, nonce: str | None = None, code_challenge: str | None = None, code_challenge_method: str | None = None, claims: dict[str, Any] | None = None, acr: str | None = None)
+.. py:class:: AuthCodePayload(*, client_id: str, redirect_uri: str, scope: str, sub: str, auth_time: int, exp: int, nonce: str | None = None, code_challenge: str | None = None, code_challenge_method: str | None = None, claims: dict[str, Any] | None = None, acr: str | None = None, registration_digest: str | None = None, userinfo_claims: dict[str, Any] | None = None)
 
    Payload sealed into an authorization code. Carries everything the token
    endpoint needs to check the exchange (``redirect_uri``, the PKCE
@@ -98,6 +114,50 @@ userinfo response.
       :type: int
    .. py:property:: acr
       :type: str | None
+   .. py:property:: registration_digest
+      :type: str | None
+
+      Fingerprint of the client registration the code was issued against.
+      The token endpoint compares it with the current registration after
+      client authentication and answers ``invalid_grant`` if it changed
+      (including a key or secret rotation); the client then starts a new
+      authorization. ``None`` for codes sealed before 0.6.0, which skip the
+      check.
+
+      .. warning::
+
+         If ``None``, the binding check is **skipped silently**, also for
+         codes you build by hand. An OP that seals its own codes must pass
+         ``client.registration_fingerprint()``, otherwise a rotated secret or
+         key does not invalidate outstanding codes.
+
+      .. versionadded:: 0.6.0
+
+   .. py:property:: userinfo_claims
+      :type: dict[str, Any] | None
+
+      Claims destined for the UserInfo response. ``None`` means use
+      ``claims`` for both destinations; ``{}`` releases no claims there.
+      ``None`` and ``{}`` are kept distinct.
+
+      .. warning::
+
+         ``None`` and omitting the argument are identical: both release the
+         full ``claims`` map at the UserInfo endpoint. To release no
+         application claims there, pass ``{}``. Never forward a value that may
+         be ``None`` when you mean "none"; that silently over-releases
+         per-attribute personal data.
+
+      .. versionadded:: 0.6.0
+
+   Authorization codes are bound to the client registration fingerprint: if
+   the registration changes between authorization and the token request, the
+   exchange fails with ``invalid_grant``. Unexpired 0.5.x codes and tokens
+   still open with the same secret; they carry no digest and no separate
+   UserInfo claims, so ``claims`` is used for both destinations.
+
+   .. versionchanged:: 0.6.0
+      Added ``registration_digest`` and ``userinfo_claims``.
 
 .. py:class:: AccessTokenPayload(*, client_id: str, sub: str, scope: str, exp: int, claims: dict[str, Any] | None = None, cnf_jkt: str | None = None)
 
@@ -124,11 +184,18 @@ userinfo response.
       request carries a valid DPoP proof from the same key; see
       :doc:`../guides/dpop`.
 
-.. py:class:: RefreshTokenPayload(*, client_id: str, sub: str, scope: str, auth_time: int, exp: int, nonce: str | None = None, claims: dict[str, Any] | None = None, acr: str | None = None, cnf_jkt: str | None = None)
+.. py:class:: RefreshTokenPayload(*, client_id: str, sub: str, scope: str, auth_time: int, exp: int, nonce: str | None = None, claims: dict[str, Any] | None = None, acr: str | None = None, cnf_jkt: str | None = None, userinfo_claims: dict[str, Any] | None = None)
 
    Payload sealed into a refresh token. Refresh tokens are rotated on use:
    each ``refresh_token`` grant returns a new one and records the old one as
    consumed.
+
+   .. note::
+
+      Refresh tokens are not bound to the client registration. Rotating a
+      client's key or secret does not invalidate refresh tokens that were
+      already issued; only client authentication (and DPoP binding, if used)
+      protects them at redemption.
 
    .. py:staticmethod:: from_dict(d: dict[str, Any]) -> RefreshTokenPayload
    .. py:method:: to_dict() -> dict[str, Any]
@@ -151,6 +218,22 @@ userinfo response.
       :type: str | None
    .. py:property:: cnf_jkt
       :type: str | None
+   .. py:property:: userinfo_claims
+      :type: dict[str, Any] | None
+
+      Claims destined for the UserInfo response. ``None`` means use
+      ``claims`` for both destinations (always the case for 0.5.x tokens);
+      ``{}`` releases none.
+
+      .. warning::
+
+         ``None`` and omitting the argument are identical: both release the
+         full ``claims`` map at the UserInfo endpoint. To release no
+         application claims there, pass ``{}``. Never forward a value that may
+         be ``None`` when you mean "none"; that silently over-releases
+         per-attribute personal data.
+
+      .. versionadded:: 0.6.0
 
 .. code-block:: python
 

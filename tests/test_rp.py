@@ -3204,7 +3204,8 @@ def test_authorization_response_empty_expected_never_matches():
             assert r.matches_state("", required=required) is False
 
 
-# The 12 codes OAuthError accepts (errors.rs parse_oauth_code).
+# The codes OAuthError accepts that core's error_known also knows (errors.rs
+# parse_oauth_code).
 _OAUTH_ERROR_CODES = [
     "invalid_request",
     "invalid_client",
@@ -3219,6 +3220,9 @@ _OAUTH_ERROR_CODES = [
     "temporarily_unavailable",
     "invalid_dpop_proof",
 ]
+# Accepted by OAuthError since 0.6.0 (core 0.13 added it) but absent from core's
+# KNOWN_ERROR_CODES, so error_known is False; deliberately not widened here.
+_UNMET_AUTHN_CODE = "unmet_authentication_requirements"
 _RESPONSE_ONLY_CODES = [
     "interaction_required",
     "account_selection_required",
@@ -3242,6 +3246,16 @@ def test_error_known_wider_than_oauth_error(code):
     assert _parse([("error", code)]).error_known is True
     with pytest.raises(ValueError):
         OAuthError(code)
+
+
+def test_oauth_error_accepts_unmet_authentication_requirements():
+    assert OAuthError(_UNMET_AUTHN_CODE).code == _UNMET_AUTHN_CODE
+
+
+def test_error_known_gap_unmet_authentication_requirements():
+    # Core 0.13 KNOWN_ERROR_CODES omits this code, so error_known is False even
+    # though OAuthError accepts it. Flip this assertion if core adds it.
+    assert _parse([("error", _UNMET_AUTHN_CODE)]).error_known is False
 
 
 def test_authorization_response_frozen_no_constructor():

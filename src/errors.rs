@@ -384,6 +384,13 @@ pub fn err(e: RsError) -> PyErr {
         RsError::UnknownModule(_) => UnknownModuleError::new_err(msg),
         RsError::BadRequest(_) => bad_request_err(msg),
         RsError::Authn(_) => AuthnError::new_err(msg),
+        RsError::UnmetAuthenticationRequirements => Python::attach(|py| {
+            with_code(
+                py,
+                AuthnError::new_err(msg),
+                "unmet_authentication_requirements",
+            )
+        }),
         RsError::State(_) => StateError::new_err(msg),
         RsError::Config(_) => config_err(msg),
         RsError::Crypto(_) => CryptoError::new_err(msg),

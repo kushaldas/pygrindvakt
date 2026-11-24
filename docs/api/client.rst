@@ -33,7 +33,7 @@ The token-endpoint authentication methods, as used in
 Client
 ------
 
-.. py:class:: Client(client_id: str, *, client_secret: str | None = None, redirect_uris: list[str] | None = None, response_types: list[str] | None = None, grant_types: list[str] | None = None, token_endpoint_auth_method: str | None = None, jwks: dict[str, Any] | None = None, scope: str | None = None, subject_type: str | None = None, client_name: str | None = None)
+.. py:class:: Client(client_id: str, *, client_secret: str | None = None, redirect_uris: list[str] | None = None, response_types: list[str] | None = None, grant_types: list[str] | None = None, token_endpoint_auth_method: str | None = None, jwks: dict[str, Any] | None = None, scope: str | None = None, subject_type: str | None = None, client_name: str | None = None, response_policy: dict[str, str] | None = None)
 
    A registered relying party. Immutable.
 
@@ -60,6 +60,17 @@ Client
 
       The client as a dict, including ``client_secret`` if set.
 
+   .. py:method:: registration_fingerprint() -> str
+
+      Unpadded base64url SHA-256 of the registration snapshot. Credentials,
+      keys and redirect URIs all contribute. Pass it as
+      :attr:`AuthCodePayload.registration_digest
+      <pygrindvakt.tokens.AuthCodePayload.registration_digest>` when your own
+      code seals authorization codes. If the registration changes afterwards,
+      redeeming the code fails with ``invalid_grant``.
+
+      .. versionadded:: 0.6.0
+
    .. py:property:: client_id
       :type: str
    .. py:property:: client_secret
@@ -84,6 +95,48 @@ Client
       :type: str
    .. py:property:: client_name
       :type: str | None
+
+   .. py:property:: response_policy
+      :type: dict[str, str]
+
+      The registered response policy as a fresh dict holding only the keys
+      that are set (empty when none is). Pass the same shape to the
+      ``response_policy`` argument or as the nested ``"response_policy"`` key
+      of :meth:`from_dict`. Unknown keys and non-string values raise
+      ``ValueError``. The policy contributes to
+      :meth:`registration_fingerprint`.
+
+      .. versionadded:: 0.6.0
+
+      .. list-table::
+         :header-rows: 1
+         :widths: 35 65
+
+         * - Key
+           - Effect
+         * - ``sector_identifier_uri``
+           - Registered URI of the redirect-URI list that establishes a
+             pairwise sector. Your application validates the list.
+         * - ``request_object_signing_alg``
+           - JWS algorithm your frontend must enforce on signed
+             authorization requests.
+         * - ``token_endpoint_auth_signing_alg``
+           - JWS algorithm pin for ``private_key_jwt``. Assertions signed
+             with another algorithm, or without a ``kid``, fail with
+             ``invalid_client``.
+         * - ``id_token_encrypted_response_alg``
+           - JWE key management algorithm. The provider encrypts the signed
+             ID token to a key in the client's ``jwks``.
+         * - ``id_token_encrypted_response_enc``
+           - ID token content encryption algorithm. Defaults to
+             ``A128CBC-HS256`` when only the ``alg`` is registered.
+         * - ``userinfo_encrypted_response_alg``
+           - JWE key management algorithm for the signed UserInfo response.
+             **Stored but not applied**: ``Provider.userinfo()`` returns JSON
+             claims, and core's ``signed_userinfo`` is not bound yet.
+         * - ``userinfo_encrypted_response_enc``
+           - UserInfo content encryption algorithm, same default. Not applied
+             (see above).
 
    .. py:method:: allows_redirect(uri: str) -> bool
 

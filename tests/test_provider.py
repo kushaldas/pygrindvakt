@@ -3,6 +3,7 @@
 import base64
 import hashlib
 import json
+import time
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -978,3 +979,307 @@ def test_jwks_document_never_contains_oct_key(op):
         doc = op.jwks_document()
     assert caught == []
     assert doc["keys"] and all(k["kty"] != "oct" for k in doc["keys"])
+
+
+def test_code_bound_to_registration():
+    """A code is bound to the registration fingerprint: a changed client -> invalid_grant."""
+    demo = client.Client(
+        "demo",
+        client_secret="s3cret",
+        redirect_uris=[REDIRECT_URI],
+        grant_types=["authorization_code", "refresh_token"],
+        client_name="Demo RP",
+    )
+    store = client.InMemoryClientStore([demo])
+    codec = tokens.TokenCodec("op-secret")
+    key = keys.signing_key_from_jwk(keys.generate_ec_jwk("P-256"), alg="ES256", kid="op-1")
+    op = provider.Provider(
+        metadata.ProviderMetadata(ISSUER),
+        key,
+        store,
+        codec,
+        token_use_store=provider.InMemoryTokenUseStore(),
+    )
+    _req, code = authz(op)
+    digest = codec.open_code(code).registration_digest
+    assert isinstance(digest, str) and digest
+    store.put(
+        client.Client(
+            "demo",
+            client_secret="s3cret",
+            redirect_uris=[REDIRECT_URI],
+            grant_types=["authorization_code", "refresh_token"],
+            client_name="Renamed",
+        )
+    )
+    with pytest.raises(OAuthError) as ei:
+        op.handle_token_request(
+            list({"grant_type": "authorization_code", "code": code, "redirect_uri": REDIRECT_URI}.items()),
+            TOKEN_URL,
+            auth_header=basic_auth("demo", "s3cret"),
+        )
+    assert ei.value.code == "invalid_grant"
+
+
+def _self_seal_setup(digest_from_client):
+    """OP that seals its own code; returns (op, store, codec, code)."""
+    kw = {
+        "client_secret": "s3cret",
+        "redirect_uris": [REDIRECT_URI],
+        "grant_types": ["authorization_code", "refresh_token"],
+        "client_name": "Demo RP",
+    }
+    demo = client.Client("demo", **kw)
+    store = client.InMemoryClientStore([demo])
+    codec = tokens.TokenCodec("op-secret")
+    key = keys.signing_key_from_jwk(keys.generate_ec_jwk("P-256"), alg="ES256", kid="op-1")
+    op = provider.Provider(
+        metadata.ProviderMetadata(ISSUER),
+        key,
+        store,
+        codec,
+        token_use_store=provider.InMemoryTokenUseStore(),
+    )
+    now = int(time.time())
+    code = codec.seal_code(
+        tokens.AuthCodePayload(
+            client_id="demo",
+            redirect_uri=REDIRECT_URI,
+            scope="openid",
+            sub="alice",
+            auth_time=now,
+            exp=now + 600,
+            registration_digest=demo.registration_fingerprint() if digest_from_client else None,
+        )
+    )
+    return op, store, code
+
+
+def _redeem(op, code):
+    return op.handle_token_request(
+        list({"grant_type": "authorization_code", "code": code, "redirect_uri": REDIRECT_URI}.items()),
+        TOKEN_URL,
+        auth_header=basic_auth("demo", "s3cret"),
+    )
+
+
+def _rotated_client():
+    return client.Client(
+        "demo",
+        client_secret="s3cret",
+        redirect_uris=[REDIRECT_URI],
+        grant_types=["authorization_code", "refresh_token"],
+        client_name="Renamed",
+    )
+
+
+def test_self_sealed_code_with_fingerprint_unchanged_registration_succeeds():
+    op, _store, code = _self_seal_setup(True)
+    assert _redeem(op, code) is not None
+
+
+def test_self_sealed_code_with_fingerprint_rejects_changed_registration():
+    op, store, code = _self_seal_setup(True)
+    store.put(_rotated_client())
+    with pytest.raises(OAuthError) as ei:
+        _redeem(op, code)
+    assert ei.value.code == "invalid_grant"
+
+
+def test_self_sealed_code_without_digest_skips_registration_check():
+    """Documents core behavior: digest=None silently skips the binding check.
+
+    The docs warn about this; self-sealing OPs must pass
+    client.registration_fingerprint().
+    """
+    op, store, code = _self_seal_setup(False)
+    store.put(_rotated_client())
+    assert _redeem(op, code) is not None
+
+
+def _pinned_provider(op_key, clients):
+    return provider.Provider(
+        metadata.ProviderMetadata(ISSUER),
+        op_key,
+        client.InMemoryClientStore(clients),
+        tokens.TokenCodec("op-secret"),
+        token_use_store=provider.InMemoryTokenUseStore(),
+    )
+
+
+def test_registered_token_endpoint_auth_signing_alg_is_enforced(op_key, rp_key):
+    """A client registered with token_endpoint_auth_signing_alg only authenticates
+    with that algorithm (and a kid); other algorithms fail with invalid_client."""
+    es_jwks = rp_key.to_public_jwks()
+    ps_key = keys.signing_key_from_jwk(keys.generate_rsa_jwk(2048), alg="RS256", kid="rsa-1")
+    both = {"keys": es_jwks["keys"] + ps_key.to_public_jwks()["keys"]}
+
+    def mk(alg):
+        return client.Client(
+            "pinned",
+            redirect_uris=[REDIRECT_URI],
+            token_endpoint_auth_method="private_key_jwt",
+            jwks=both,
+            response_policy={"token_endpoint_auth_signing_alg": alg},
+        )
+
+    def auth(op, key):
+        return op.authenticate_client(
+            [
+                ("client_assertion_type", provider.CLIENT_ASSERTION_TYPE),
+                ("client_assertion", rp.build_client_assertion(key, "pinned", TOKEN_URL)),
+            ],
+            TOKEN_URL,
+        )
+
+    op = _pinned_provider(op_key, [mk("ES256")])
+    assert auth(op, rp_key).client_id == "pinned"
+    with pytest.raises(OAuthError) as ei:  # RS256 assertion, ES256 pinned
+        auth(op, ps_key)
+    assert ei.value.code == "invalid_client"
+
+    # Same keys without a pin: both algorithms are accepted.
+    unpinned = _pinned_provider(
+        op_key,
+        [
+            client.Client(
+                "pinned",
+                redirect_uris=[REDIRECT_URI],
+                token_endpoint_auth_method="private_key_jwt",
+                jwks=both,
+            )
+        ],
+    )
+    assert auth(unpinned, ps_key).client_id == "pinned"
+
+    # The pin travels through the dict / from_dict path too.
+    via_dict = _pinned_provider(op_key, [mk("ES256").to_dict()])
+    with pytest.raises(OAuthError) as ei:
+        auth(via_dict, ps_key)
+    assert ei.value.code == "invalid_client"
+
+
+def test_registered_id_token_encryption_yields_jwe(op_key):
+    """A client registered for ID token encryption receives a 5-part JWE."""
+    enc_jwk = keys.generate_ec_jwk("P-256")
+    enc_jwk["use"] = "enc"
+    enc_jwk["kid"] = "enc-1"
+    c = client.Client(
+        "enc-rp",
+        client_secret="s3cret",
+        redirect_uris=[REDIRECT_URI],
+        jwks={"keys": [enc_jwk]},
+        response_policy={"id_token_encrypted_response_alg": "ECDH-ES"},
+    )
+    op = _pinned_provider(op_key, [c])
+    verifier = util.random_token(32)
+    req = request.AuthorizationRequest.from_params(
+        [
+            ("client_id", "enc-rp"),
+            ("response_type", "code"),
+            ("redirect_uri", REDIRECT_URI),
+            ("scope", "openid"),
+            ("nonce", "n"),
+            ("code_challenge", pkce.s256_challenge(verifier)),
+            ("code_challenge_method", "S256"),
+        ]
+    )
+    op.validate_authorization_request(req)
+    code = code_from_redirect(op.authorization_redirect(req, "bob"))
+    tr = op.handle_token_request(
+        [
+            ("grant_type", "authorization_code"),
+            ("code", code),
+            ("redirect_uri", REDIRECT_URI),
+            ("code_verifier", verifier),
+        ],
+        TOKEN_URL,
+        auth_header=basic_auth("enc-rp", "s3cret"),
+    )
+    assert tr.id_token.count(".") == 4
+
+
+# Pins the contract in the docs/api/tokens.rst warning on ``userinfo_claims``:
+# None and omitted both inherit ``claims``; only ``{}`` withholds.
+_OMIT = object()
+
+
+def _uc_kwargs(userinfo_claims):
+    return {} if userinfo_claims is _OMIT else {"userinfo_claims": userinfo_claims}
+
+
+def _uc_op():
+    demo = client.Client(
+        "demo",
+        client_secret="s3cret",
+        redirect_uris=[REDIRECT_URI],
+        grant_types=["authorization_code", "refresh_token"],
+    )
+    codec = tokens.TokenCodec("op-secret")
+    key = keys.signing_key_from_jwk(keys.generate_ec_jwk("P-256"), alg="ES256", kid="op-1")
+    op = provider.Provider(
+        metadata.ProviderMetadata(ISSUER),
+        key,
+        client.InMemoryClientStore([demo]),
+        codec,
+        token_use_store=provider.InMemoryTokenUseStore(),
+    )
+    return op, codec, demo
+
+
+_UC_CASES = [
+    pytest.param(_OMIT, True, id="omitted"),
+    pytest.param(None, True, id="none"),
+    pytest.param({}, False, id="empty"),
+]
+
+
+@pytest.mark.parametrize(("userinfo_claims", "released"), _UC_CASES)
+def test_code_userinfo_claims_none_and_omitted_inherit_claims(userinfo_claims, released):
+    op, codec, demo = _uc_op()
+    now = int(time.time())
+    code = codec.seal_code(
+        tokens.AuthCodePayload(
+            client_id="demo",
+            redirect_uri=REDIRECT_URI,
+            scope="openid email",
+            sub="alice",
+            auth_time=now,
+            exp=now + 600,
+            claims={"email": "alice@example.com"},
+            registration_digest=demo.registration_fingerprint(),
+            **_uc_kwargs(userinfo_claims),
+        )
+    )
+    ui = op.userinfo(_redeem(op, code).access_token)
+    if released:
+        assert ui == {"sub": "alice", "email": "alice@example.com"}
+    else:
+        assert ui == {"sub": "alice"}
+
+
+@pytest.mark.parametrize(("userinfo_claims", "released"), _UC_CASES)
+def test_refresh_userinfo_claims_none_and_omitted_inherit_claims(userinfo_claims, released):
+    op, codec, _demo = _uc_op()
+    now = int(time.time())
+    rt = codec.seal_refresh_token(
+        tokens.RefreshTokenPayload(
+            client_id="demo",
+            sub="alice",
+            scope="openid email",
+            auth_time=now,
+            exp=now + 600,
+            claims={"email": "alice@example.com"},
+            **_uc_kwargs(userinfo_claims),
+        )
+    )
+    tr = op.handle_token_request(
+        list({"grant_type": "refresh_token", "refresh_token": rt}.items()),
+        TOKEN_URL,
+        auth_header=basic_auth("demo", "s3cret"),
+    )
+    ui = op.userinfo(tr.access_token)
+    if released:
+        assert ui == {"sub": "alice", "email": "alice@example.com"}
+    else:
+        assert ui == {"sub": "alice"}
