@@ -41,6 +41,8 @@ Read src/http.rs, src/client.rs, src/provider.rs, src/dpop.rs, src/jwt.rs first:
 - User-visible changes get a bullet under `## Unreleased` in `CHANGELOG.md` (add the heading above the
   latest release if it is missing; the release commit renames it to `## [<v>] - <date>`); keep one section of each type per release — entries from merged
   branches were concatenated once already.
+  The release workflow publishes that `## [<v>] - <date>` section as the body of the GitHub release for
+  tag `v<v>` (and fails if the section is missing), so keep the heading in exactly that form.
 - Docs build with `-W` on Read the Docs and have no CI job: run
   `.venv/bin/python -m sphinx -b html -W docs docs/_build/html` (needs `--group docs`) before pushing
   docs changes, and `just docs-version` when you touch the grindvakt version named in `README.md` /

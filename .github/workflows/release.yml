@@ -246,3 +246,57 @@ jobs:
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
         packages-dir: dist/
+
+  # GitHub Release for the tag: the CHANGELOG section as the body, GitHub's
+  # generated "What's Changed" list appended, and the published wheel attached.
+  github-release:
+    name: GitHub release
+    needs: [publish]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    permissions:
+      contents: write
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Download wheels
+      uses: actions/download-artifact@v8
+      with:
+        path: dist
+        pattern: pygrindvakt_*
+        merge-multiple: true
+
+    - name: Check the tag matches the package version
+      run: |
+        version="${GITHUB_REF_NAME#v}"
+        pkg="$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -n1)"
+        if [ "${pkg}" != "${version}" ]; then
+          echo "::error::Tag ${GITHUB_REF_NAME} does not match pyproject.toml version ${pkg}"
+          exit 1
+        fi
+
+    - name: Extract this version's CHANGELOG section
+      run: |
+        version="${GITHUB_REF_NAME#v}"
+        awk -v v="${version}" '
+          $0 ~ "^## \\[" v "\\]" { found = 1; next }
+          found && /^## \[/ { exit }
+          found { print }
+        ' CHANGELOG.md > release-notes.md
+        if ! grep -q '[^[:space:]]' release-notes.md; then
+          echo "::error::No CHANGELOG.md section found for ${version}"
+          exit 1
+        fi
+        cat release-notes.md
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+      with:
+        name: ${{ github.ref_name }}
+        body_path: release-notes.md
+        generate_release_notes: true
+        files: dist/*
+        prerelease: ${{ contains(github.ref_name, '-') }}
