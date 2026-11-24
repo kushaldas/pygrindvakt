@@ -1172,3 +1172,153 @@ def test_build_entity_configuration_no_warning_for_asymmetric_keys(fed):
         warnings.simplefilter("always")
         federation.build_entity_configuration(fed.leaf_key, LEAF, fed.leaf_key.to_public_jwks(), [TA], LEAF_METADATA)
     assert caught == []
+
+
+# ---------------------------------------------------------------------------
+# verify_trust_marks
+# ---------------------------------------------------------------------------
+
+TM_TYPE = "https://tm.example/t"
+TM_ISSUER = "https://tmi.example.org"
+
+
+def trust_mark(signer, *, typ=federation.TRUST_MARK_TYP, **overrides) -> str:
+    claims = {
+        "iss": TM_ISSUER,
+        "sub": LEAF,
+        "trust_mark_type": TM_TYPE,
+        "iat": now(),
+        "exp": now() + 3600,
+    }
+    claims.update(overrides)
+    for k in [k for k, v in claims.items() if v is None]:
+        del claims[k]
+    return jwt.sign(signer, claims, typ=typ)
+
+
+def entry(token: str, type_: str = TM_TYPE) -> dict:
+    return {"trust_mark_type": type_, "trust_mark": token}
+
+
+def verify_marks(fed, marks, **kw):
+    kw.setdefault("subject", LEAF)
+    return federation.verify_trust_marks(marks, fed.ta_key.to_public_jwks(), TM_TYPE, **kw)
+
+
+def assert_invalid(fed, marks, code="trust_mark_invalid", **kw):
+    with pytest.raises(pygrindvakt.AuthnError) as exc:
+        verify_marks(fed, marks, **kw)
+    assert exc.value.code == code
+
+
+def test_trust_mark_typ_constant():
+    assert federation.TRUST_MARK_TYP == "trust-mark+jwt"
+
+
+def test_verify_trust_marks_round_trip_via_resolve(fed):
+    marks = [entry(trust_mark(fed.ta_key))]
+    entity = federation.resolve_via_trust_anchors(fed.network(trust_marks=marks), LEAF, fed.trust_anchors())
+    out = federation.verify_trust_marks(
+        entity.trust_marks, fed.ta_key.to_public_jwks(), TM_TYPE, subject=entity.subject, issuer=TM_ISSUER
+    )
+    assert len(out) == 1
+    assert out[0].iss() == TM_ISSUER
+    assert out[0].sub() == LEAF
+    assert out[0].claims["trust_mark_type"] == TM_TYPE
+
+
+def test_verify_trust_marks_wrong_typ(fed):
+    assert_invalid(fed, [entry(trust_mark(fed.ta_key, typ="JWT"))])
+
+
+def test_verify_trust_marks_wrong_subject(fed):
+    assert_invalid(fed, [entry(trust_mark(fed.ta_key, sub="https://other.example"))])
+
+
+def test_verify_trust_marks_issuer_mismatch(fed):
+    assert_invalid(fed, [entry(trust_mark(fed.ta_key))], issuer="https://else.example")
+
+
+def test_verify_trust_marks_issuer_match(fed):
+    assert len(verify_marks(fed, [entry(trust_mark(fed.ta_key))], issuer=TM_ISSUER)) == 1
+
+
+def test_verify_trust_marks_wrong_key(fed):
+    assert_invalid(fed, [entry(trust_mark(make_key("other")))])
+
+
+def test_verify_trust_marks_expired(fed):
+    assert_invalid(fed, [entry(trust_mark(fed.ta_key, exp=now() - 600, iat=now() - 1200))])
+
+
+def test_verify_trust_marks_future_nbf(fed):
+    assert_invalid(fed, [entry(trust_mark(fed.ta_key, nbf=now() + 600))])
+
+
+def test_verify_trust_marks_missing_exp(fed):
+    tok = trust_mark(fed.ta_key, exp=None)
+    assert_invalid(fed, [entry(tok)])
+    assert_invalid(fed, [entry(tok)], require_exp=True)
+    assert len(verify_marks(fed, [entry(tok)], require_exp=False)) == 1
+
+
+def test_verify_trust_marks_hs256_refused(fed):
+    hs = keys.signing_key_from_jwk({"kty": "oct", "k": "c" * 43, "kid": "sym"}, alg="HS256", kid="sym")
+    assert_invalid(fed, [entry(trust_mark(hs))], code="symmetric_algorithm")
+
+
+def test_verify_trust_marks_inner_type_mismatch(fed):
+    assert_invalid(fed, [entry(trust_mark(fed.ta_key, trust_mark_type="https://tm.example/other"))])
+
+
+def test_verify_trust_marks_outer_type_mismatch(fed):
+    """The entry claims another type than the signed mark: skipped, so nothing of the type exists."""
+    tok = trust_mark(fed.ta_key, trust_mark_type="https://tm.example/other")
+    assert_invalid(fed, [entry(tok, "https://tm.example/other")], code="trust_mark_missing")
+
+
+def test_verify_trust_marks_missing_iss(fed):
+    assert_invalid(fed, [entry(trust_mark(fed.ta_key, iss=None))])
+
+
+def test_verify_trust_marks_delegation_fails_closed(fed):
+    assert_invalid(fed, [entry(trust_mark(fed.ta_key, delegation="a.b.c"))])
+
+
+def test_verify_trust_marks_non_dict_entry_ignored(fed):
+    assert_invalid(fed, ["not a dict", 5, None], code="trust_mark_missing")
+    assert len(verify_marks(fed, ["junk", entry(trust_mark(fed.ta_key))])) == 1
+
+
+def test_verify_trust_marks_entry_without_trust_mark(fed):
+    assert_invalid(fed, [{"trust_mark_type": TM_TYPE}])
+    assert_invalid(fed, [{"trust_mark_type": TM_TYPE, "trust_mark": 5}])
+
+
+def test_verify_trust_marks_oct_key_dropped(fed):
+    jwks = {"keys": [OCT_KEY]}
+    with pytest.warns(UserWarning, match=r"symmetric \(oct\) key"), pytest.raises(pygrindvakt.AuthnError) as exc:
+        federation.verify_trust_marks([entry(trust_mark(fed.ta_key))], jwks, TM_TYPE, subject=LEAF)
+    assert exc.value.code == "trust_mark_invalid"
+
+
+def test_verify_trust_marks_other_types_skipped(fed):
+    other = entry(trust_mark(make_key("x"), trust_mark_type="https://tm.example/o"), "https://tm.example/o")
+    out = verify_marks(fed, [other, entry(trust_mark(fed.ta_key))])
+    assert len(out) == 1
+
+
+def test_verify_trust_marks_multiple_valid_all_returned(fed):
+    marks = [entry(trust_mark(fed.ta_key, iss=f"https://i{n}.example")) for n in range(2)]
+    out = verify_marks(fed, marks)
+    assert [s.iss() for s in out] == ["https://i0.example", "https://i1.example"]
+
+
+def test_verify_trust_marks_one_bad_one_good(fed):
+    marks = [entry(trust_mark(make_key("bad"))), entry(trust_mark(fed.ta_key))]
+    assert len(verify_marks(fed, marks)) == 1
+
+
+def test_verify_trust_marks_none_of_type_is_missing(fed):
+    assert_invalid(fed, [], code="trust_mark_missing")
+    assert_invalid(fed, [entry("a.b.c", "https://tm.example/o")], code="trust_mark_missing")

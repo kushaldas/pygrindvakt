@@ -18,6 +18,7 @@ use serde_json::{Map, Value};
 
 use grindvakt::federation as gf;
 use grindvakt::jose_rs::jwk::JwkSet;
+use grindvakt::jose_rs::jwt::Validation;
 
 use crate::convert::{from_py, new_submodule, to_py};
 use crate::errors::{err, with_code, AuthnError};
@@ -365,6 +366,120 @@ fn verify_self_signed(py: Python<'_>, token: &str) -> PyResult<EntityStatement> 
 }
 
 // ---------------------------------------------------------------------------
+// Trust marks
+// ---------------------------------------------------------------------------
+
+/// `typ` header of a trust mark JWT (OpenID Federation 1.0 section 7.1).
+const TRUST_MARK_TYP: &str = "trust-mark+jwt";
+
+/// Verify one trust mark JWT; returns the validated claims or a reason.
+fn verify_one_trust_mark(
+    py: Python<'_>,
+    token: &str,
+    jwks: &JwkSet,
+    required_type: &str,
+    subject: &str,
+    issuer: Option<&str>,
+    require_exp: bool,
+) -> PyResult<Result<EntityStatement, String>> {
+    refuse_mac_or_none(py, token)?;
+    let mut validation = Validation::new()
+        .with_typ(TRUST_MARK_TYP)
+        .with_subject(subject);
+    if let Some(iss) = issuer {
+        validation = validation.with_issuer(iss);
+    }
+    if require_exp {
+        validation = validation.require_exp();
+    }
+    let claims = match grindvakt::jwt::verify_with_jwks(jwks, token, &validation) {
+        Ok(c) => c,
+        Err(e) => return Ok(Err(e.to_string())),
+    };
+    let value = match serde_json::to_value(&claims) {
+        Ok(v) => v,
+        Err(e) => return Ok(Err(e.to_string())),
+    };
+    if value.get("trust_mark_type").and_then(Value::as_str) != Some(required_type) {
+        return Ok(Err("inner trust_mark_type does not match the entry".into()));
+    }
+    if value.get("iss").and_then(Value::as_str).is_none() {
+        return Ok(Err("trust mark has no iss".into()));
+    }
+    if value.get("delegation").is_some() {
+        return Ok(Err(
+            "delegated trust marks are not supported (no delegation owner keys)".into(),
+        ));
+    }
+    Ok(Ok(EntityStatement::wrap(gf::EntityStatement {
+        claims: value,
+    })))
+}
+
+/// Verify the trust marks of a resolved entity (OpenID Federation 1.0
+/// section 7). Core stores them raw; this verifies the ones of
+/// `required_type` against the trust mark ISSUER's keys.
+#[pyfunction]
+#[pyo3(signature = (marks, issuer_jwks, required_type, *, subject, issuer=None, require_exp=true))]
+fn verify_trust_marks(
+    py: Python<'_>,
+    marks: &Bound<'_, PyAny>,
+    issuer_jwks: &Bound<'_, PyAny>,
+    required_type: &str,
+    subject: &str,
+    issuer: Option<&str>,
+    require_exp: bool,
+) -> PyResult<Vec<EntityStatement>> {
+    let marks: Vec<Value> = from_py(marks)?;
+    let jwks = verifier_jwks(py, issuer_jwks)?;
+    let mut verified = Vec::new();
+    let mut seen = false;
+    let mut last_reason = String::new();
+    for entry in &marks {
+        let Some(obj) = entry.as_object() else {
+            continue;
+        };
+        if obj.get("trust_mark_type").and_then(Value::as_str) != Some(required_type) {
+            continue;
+        }
+        seen = true;
+        let Some(token) = obj.get("trust_mark").and_then(Value::as_str) else {
+            last_reason = "entry has no string trust_mark".into();
+            continue;
+        };
+        match verify_one_trust_mark(
+            py,
+            token,
+            &jwks,
+            required_type,
+            subject,
+            issuer,
+            require_exp,
+        )? {
+            Ok(stmt) => verified.push(stmt),
+            Err(reason) => last_reason = reason,
+        }
+    }
+    if !verified.is_empty() {
+        return Ok(verified);
+    }
+    if !seen {
+        return Err(with_code(
+            py,
+            AuthnError::new_err(format!("no trust mark of type {required_type:?} present")),
+            "trust_mark_missing",
+        ));
+    }
+    Err(with_code(
+        py,
+        AuthnError::new_err(format!(
+            "no trust mark of type {required_type:?} verified: {last_reason}"
+        )),
+        "trust_mark_invalid",
+    ))
+}
+
+// ---------------------------------------------------------------------------
 // Networked: fetch / resolve / keys / collection
 // ---------------------------------------------------------------------------
 
@@ -545,6 +660,7 @@ pub fn register(py: Python<'_>, parent: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(verify, &m)?)?;
     m.add_function(wrap_pyfunction!(verify_typed, &m)?)?;
     m.add_function(wrap_pyfunction!(verify_self_signed, &m)?)?;
+    m.add_function(wrap_pyfunction!(verify_trust_marks, &m)?)?;
     m.add_function(wrap_pyfunction!(fetch_entity_configuration, &m)?)?;
     m.add_function(wrap_pyfunction!(resolve_via_trust_anchors, &m)?)?;
     m.add_function(wrap_pyfunction!(entity_metadata_jwks, &m)?)?;
@@ -555,5 +671,6 @@ pub fn register(py: Python<'_>, parent: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("ENTITY_STATEMENT_TYP", gf::ENTITY_STATEMENT_TYP)?;
     m.add("RESOLVE_RESPONSE_TYP", gf::RESOLVE_RESPONSE_TYP)?;
     m.add("JWK_SET_TYP", gf::JWK_SET_TYP)?;
+    m.add("TRUST_MARK_TYP", TRUST_MARK_TYP)?;
     Ok(())
 }

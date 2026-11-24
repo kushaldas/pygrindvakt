@@ -240,6 +240,10 @@ def use_all() -> None:
 
     federation.fetch_entity_configuration(reqwest, "https://ta.example.com")
     federation.fetch_entity_configuration(custom, "https://ta.example.com")
+    verified_marks: list[federation.EntityStatement] = federation.verify_trust_marks(
+        [], {"keys": []}, "https://t.example.com/mark", subject="https://rp.example.com", issuer=None, require_exp=False
+    )
+    assert verified_marks == []
     federation.fetch_collection(None, "https://ta.example.com/collection", "openid_provider")
 
     discovery.self_published_rp(reqwest, "https://rp.example.com")

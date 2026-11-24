@@ -118,7 +118,30 @@ wins; if all fail the last error is raised.
    entity.metadata         # policy-applied metadata, e.g. entity.metadata["openid_provider"]
    entity.subject_jwks     # the subject's federation keys
    entity.exp              # earlier of resolve and chain expiry; bound your cache by it
-   entity.trust_marks      # raw entries; verify before trusting
+   entity.trust_marks      # raw entries; verify with verify_trust_marks
+
+Trust marks
+-----------
+
+``entity.trust_marks`` is unverified. Do not test it with
+``any(m["trust_mark_type"] == REQUIRED for m in entity.trust_marks)``: that
+accepts a mark nobody signed. Use
+:func:`~pygrindvakt.federation.verify_trust_marks` with the keys of the
+trust mark *issuer* (the trust anchor only if it issues the mark itself):
+
+.. code-block:: python
+
+   marks = federation.verify_trust_marks(
+       entity.trust_marks,
+       MARK_ISSUER_JWKS,
+       REQUIRED,
+       subject=entity.subject,
+       issuer=MARK_ISSUER_ID,
+   )
+
+It raises ``AuthnError`` (``trust_mark_missing`` / ``trust_mark_invalid``)
+unless at least one mark verifies. Marks without ``exp`` are rejected unless
+``require_exp=False``.
 
 Resolution is several HTTP round trips. Cache the result, keyed by subject,
 for at most ``entity.exp - now`` seconds. ``exp`` is the earlier of the resolve

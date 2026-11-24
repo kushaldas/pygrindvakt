@@ -21,8 +21,18 @@ adopting a change made in `grindvakt` / `jose-rs` and surfacing it to Python.
   minutes), or a JWE when the client registered
   `userinfo_encrypted_response_alg`. Serve it as `application/jwt`.
 
+- `federation.verify_trust_marks(marks, issuer_jwks, required_type, *, subject,
+  issuer=None, require_exp=True)` and `federation.TRUST_MARK_TYP`: verify
+  trust marks from `ResolvedEntity.trust_marks` (core stores them raw). Raises
+  `AuthnError` `trust_mark_missing` / `trust_mark_invalid`.
+
 ### Security
 
+- Trust marks can now be verified. Pass the keys of the trust mark issuer
+  (the trust anchor only if it issues the mark itself). `exp` is optional in
+  the spec; `require_exp=True` is a deliberate fail-closed deviation.
+  `delegation` claims fail closed. Replaces the
+  `any(m["trust_mark_type"] == ...)` pattern, which trusts unsigned input.
 - `userinfo_encrypted_response_alg`/`_enc` are now applied by
   `Provider.signed_userinfo`; docs no longer describe them as stored but not
   applied. `Provider.userinfo` still returns plain JSON.
