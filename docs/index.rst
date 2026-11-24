@@ -153,6 +153,14 @@ version is what ``Cargo.lock`` pins).
    * - pygrindvakt
      - grindvakt
      - Notes
+   * - 0.6.0
+     - 0.13.0
+     - binds core 0.13 (Rust 1.89, jose-rs 0.13): authorization codes bound to the client
+       registration (``invalid_grant`` if it changes; ``Client.registration_fingerprint()`` for
+       self-sealed codes), ``Client(response_policy=...)``, ``registration_digest`` and
+       ``userinfo_claims`` on the token payloads, ``ResolvedEntity.trust_marks``,
+       ``ResolvedEntity.exp`` bounded by the trust chain, ``OAuthError`` accepts
+       ``unmet_authentication_requirements``; ``url`` 2.5.9.
    * - 0.5.0
      - 0.12.0
      - binds core 0.12 (Rust 1.89): ``ReqwestClient.post_json`` for JSON POSTs without another
