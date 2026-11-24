@@ -11,6 +11,15 @@ adopting a change made in `grindvakt` / `jose-rs` and surfacing it to Python.
 
 ### Added
 
+- `Client(response_policy=...)` and `Client.response_policy`: register the
+  core 0.13 response policy (`sector_identifier_uri`,
+  `request_object_signing_alg`, `token_endpoint_auth_signing_alg`,
+  `id_token_encrypted_response_alg`/`_enc`,
+  `userinfo_encrypted_response_alg`/`_enc`) from Python. The provider enforces
+  the `private_key_jwt` algorithm pin and encrypts the ID token and UserInfo
+  response for the client. `Client.from_dict` accepts the nested
+  `response_policy` registration (`null` means unset) and rejects unknown, non-string or empty entries
+  with `ValueError`; it contributes to `registration_fingerprint()`.
 - `Client.registration_fingerprint()`: the digest to pass as
   `AuthCodePayload.registration_digest` when your own code seals
   authorization codes.
@@ -54,8 +63,6 @@ adopting a change made in `grindvakt` / `jose-rs` and surfacing it to Python.
 - Unregistered JWT claims and header parameters are serialized in sorted key
   order.
 - `"Ed448"` now parses in `jwt.Validation.with_allowed_algorithms`.
-- The client response policy added in core 0.13 is left at its default.
-  `Client.from_dict` still rejects unknown keys.
 
 ### Fixed
 

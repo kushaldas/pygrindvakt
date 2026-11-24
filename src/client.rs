@@ -31,7 +31,50 @@ const CLIENT_FIELDS: &[&str] = &[
     "scope",
     "subject_type",
     "client_name",
+    "response_policy",
 ];
+
+/// Keys of `grindvakt::client::ResponsePolicy`. The core struct does not deny
+/// unknown fields, so the binding validates the key set itself.
+const RESPONSE_POLICY_FIELDS: &[&str] = &[
+    "sector_identifier_uri",
+    "request_object_signing_alg",
+    "token_endpoint_auth_signing_alg",
+    "id_token_encrypted_response_alg",
+    "id_token_encrypted_response_enc",
+    "userinfo_encrypted_response_alg",
+    "userinfo_encrypted_response_enc",
+];
+
+/// Parse a registered response policy: a mapping of known keys to strings.
+fn response_policy_from_value(v: serde_json::Value) -> PyResult<gc::ResponsePolicy> {
+    let obj = v
+        .as_object()
+        .ok_or_else(|| PyValueError::new_err("response_policy must be a dict"))?;
+    let unknown: Vec<String> = obj
+        .keys()
+        .filter(|k| !RESPONSE_POLICY_FIELDS.contains(&k.as_str()))
+        .map(|k| format!("{k:?}"))
+        .collect();
+    if !unknown.is_empty() {
+        return Err(PyValueError::new_err(format!(
+            "unknown response_policy field(s): {}",
+            unknown.join(", ")
+        )));
+    }
+    if let Some((k, _)) = obj.iter().find(|(_, val)| !val.is_string()) {
+        return Err(PyValueError::new_err(format!(
+            "response_policy field {k:?} must be a string"
+        )));
+    }
+    if let Some((k, _)) = obj.iter().find(|(_, val)| val.as_str() == Some("")) {
+        return Err(PyValueError::new_err(format!(
+            "response_policy field {k:?} must not be empty"
+        )));
+    }
+    serde_json::from_value(v)
+        .map_err(|e| PyValueError::new_err(format!("invalid response_policy: {e}")))
+}
 
 /// A registered relying party.
 ///
@@ -56,7 +99,8 @@ impl Client {
     #[pyo3(signature = (client_id, *, client_secret = None, redirect_uris = None,
                         response_types = None, grant_types = None,
                         token_endpoint_auth_method = None, jwks = None, scope = None,
-                        subject_type = None, client_name = None))]
+                        subject_type = None, client_name = None,
+                        response_policy = None))]
     #[allow(clippy::too_many_arguments)]
     fn new(
         client_id: String,
@@ -69,10 +113,15 @@ impl Client {
         scope: Option<String>,
         subject_type: Option<String>,
         client_name: Option<String>,
+        response_policy: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
         let jwks: Option<JwkSet> = match jwks {
             Some(j) if !j.is_none() => Some(from_py(j)?),
             _ => None,
+        };
+        let response_policy = match response_policy {
+            Some(p) if !p.is_none() => response_policy_from_value(from_py(p)?)?,
+            _ => gc::ResponsePolicy::default(),
         };
         Ok(Self {
             inner: gc::Client {
@@ -87,7 +136,7 @@ impl Client {
                 scope,
                 subject_type: subject_type.unwrap_or_else(|| "public".into()),
                 client_name,
-                response_policy: Default::default(),
+                response_policy,
             },
         })
     }
@@ -113,6 +162,17 @@ impl Client {
                     .collect::<Vec<_>>()
                     .join(", ")
             )));
+        }
+        // An explicit null means "no policy", like `response_policy=None` in the constructor.
+        let null_policy = obj.get("response_policy").is_some_and(|p| p.is_null());
+        if let Some(p) = obj.get("response_policy").filter(|p| !p.is_null()) {
+            response_policy_from_value(p.clone())?;
+        }
+        let mut v = v;
+        if null_policy {
+            if let Some(o) = v.as_object_mut() {
+                o.remove("response_policy");
+            }
         }
         let inner: gc::Client = serde_json::from_value(v)
             .map_err(|e| PyValueError::new_err(format!("invalid Client: {e}")))?;
@@ -175,6 +235,13 @@ impl Client {
     #[getter]
     fn client_name(&self) -> Option<&str> {
         self.inner.client_name.as_deref()
+    }
+
+    /// The registered response policy as a fresh dict holding only the keys
+    /// that are set (empty when none is).
+    #[getter]
+    fn response_policy<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        to_py(py, &self.inner.response_policy)
     }
 
     /// Whether `uri` exactly matches a registered redirect URI.
@@ -357,4 +424,46 @@ pub fn register(py: Python<'_>, parent: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("AUTH_CLIENT_SECRET_POST", gc::AUTH_CLIENT_SECRET_POST)?;
     m.add("AUTH_PRIVATE_KEY_JWT", gc::AUTH_PRIVATE_KEY_JWT)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `CLIENT_FIELDS` must match the keys core serializes for a fully
+    /// populated client, or `to_dict()` output could be rejected by
+    /// `from_dict()` (or a new core field stay unreachable).
+    #[test]
+    fn client_fields_match_core_serialization() {
+        let policy = serde_json::json!({
+            "sector_identifier_uri": "a", "request_object_signing_alg": "a",
+            "token_endpoint_auth_signing_alg": "a", "id_token_encrypted_response_alg": "a",
+            "id_token_encrypted_response_enc": "a", "userinfo_encrypted_response_alg": "a",
+            "userinfo_encrypted_response_enc": "a",
+        });
+        let full = serde_json::json!({
+            "client_id": "x", "client_secret": "s", "redirect_uris": ["https://x/cb"],
+            "response_types": ["code"], "grant_types": ["authorization_code"],
+            "token_endpoint_auth_method": "none", "jwks": {"keys": []}, "scope": "a",
+            "subject_type": "public", "client_name": "n", "response_policy": policy,
+        });
+        let c: gc::Client = serde_json::from_value(full).unwrap();
+        let out = serde_json::to_value(&c).unwrap();
+        let mut got: Vec<&str> = out
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        let mut want = CLIENT_FIELDS.to_vec();
+        got.sort_unstable();
+        want.sort_unstable();
+        assert_eq!(got, want);
+        let pol = out["response_policy"].as_object().unwrap();
+        let mut got: Vec<&str> = pol.keys().map(String::as_str).collect();
+        let mut want = RESPONSE_POLICY_FIELDS.to_vec();
+        got.sort_unstable();
+        want.sort_unstable();
+        assert_eq!(got, want);
+    }
 }

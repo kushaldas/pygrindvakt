@@ -1095,3 +1095,105 @@ def test_self_sealed_code_without_digest_skips_registration_check():
     op, store, code = _self_seal_setup(False)
     store.put(_rotated_client())
     assert _redeem(op, code) is not None
+
+
+def _pinned_provider(op_key, clients):
+    return provider.Provider(
+        metadata.ProviderMetadata(ISSUER),
+        op_key,
+        client.InMemoryClientStore(clients),
+        tokens.TokenCodec("op-secret"),
+        token_use_store=provider.InMemoryTokenUseStore(),
+    )
+
+
+def test_registered_token_endpoint_auth_signing_alg_is_enforced(op_key, rp_key):
+    """A client registered with token_endpoint_auth_signing_alg only authenticates
+    with that algorithm (and a kid); other algorithms fail with invalid_client."""
+    es_jwks = rp_key.to_public_jwks()
+    ps_key = keys.signing_key_from_jwk(keys.generate_rsa_jwk(2048), alg="RS256", kid="rsa-1")
+    both = {"keys": es_jwks["keys"] + ps_key.to_public_jwks()["keys"]}
+
+    def mk(alg):
+        return client.Client(
+            "pinned",
+            redirect_uris=[REDIRECT_URI],
+            token_endpoint_auth_method="private_key_jwt",
+            jwks=both,
+            response_policy={"token_endpoint_auth_signing_alg": alg},
+        )
+
+    def auth(op, key):
+        return op.authenticate_client(
+            [
+                ("client_assertion_type", provider.CLIENT_ASSERTION_TYPE),
+                ("client_assertion", rp.build_client_assertion(key, "pinned", TOKEN_URL)),
+            ],
+            TOKEN_URL,
+        )
+
+    op = _pinned_provider(op_key, [mk("ES256")])
+    assert auth(op, rp_key).client_id == "pinned"
+    with pytest.raises(OAuthError) as ei:  # RS256 assertion, ES256 pinned
+        auth(op, ps_key)
+    assert ei.value.code == "invalid_client"
+
+    # Same keys without a pin: both algorithms are accepted.
+    unpinned = _pinned_provider(
+        op_key,
+        [
+            client.Client(
+                "pinned",
+                redirect_uris=[REDIRECT_URI],
+                token_endpoint_auth_method="private_key_jwt",
+                jwks=both,
+            )
+        ],
+    )
+    assert auth(unpinned, ps_key).client_id == "pinned"
+
+    # The pin travels through the dict / from_dict path too.
+    via_dict = _pinned_provider(op_key, [mk("ES256").to_dict()])
+    with pytest.raises(OAuthError) as ei:
+        auth(via_dict, ps_key)
+    assert ei.value.code == "invalid_client"
+
+
+def test_registered_id_token_encryption_yields_jwe(op_key):
+    """A client registered for ID token encryption receives a 5-part JWE."""
+    enc_jwk = keys.generate_ec_jwk("P-256")
+    enc_jwk["use"] = "enc"
+    enc_jwk["kid"] = "enc-1"
+    c = client.Client(
+        "enc-rp",
+        client_secret="s3cret",
+        redirect_uris=[REDIRECT_URI],
+        jwks={"keys": [enc_jwk]},
+        response_policy={"id_token_encrypted_response_alg": "ECDH-ES"},
+    )
+    op = _pinned_provider(op_key, [c])
+    verifier = util.random_token(32)
+    req = request.AuthorizationRequest.from_params(
+        [
+            ("client_id", "enc-rp"),
+            ("response_type", "code"),
+            ("redirect_uri", REDIRECT_URI),
+            ("scope", "openid"),
+            ("nonce", "n"),
+            ("code_challenge", pkce.s256_challenge(verifier)),
+            ("code_challenge_method", "S256"),
+        ]
+    )
+    op.validate_authorization_request(req)
+    code = code_from_redirect(op.authorization_redirect(req, "bob"))
+    tr = op.handle_token_request(
+        [
+            ("grant_type", "authorization_code"),
+            ("code", code),
+            ("redirect_uri", REDIRECT_URI),
+            ("code_verifier", verifier),
+        ],
+        TOKEN_URL,
+        auth_header=basic_auth("enc-rp", "s3cret"),
+    )
+    assert tr.id_token.count(".") == 4

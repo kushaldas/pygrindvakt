@@ -47,6 +47,15 @@ framework integrations cannot accidentally omit deployment-critical choices.
      - Ignores unknown fields, so ``redirect_uri`` (singular) yields a
        client with no redirect URIs that fails every authorization request.
      - None; fix the field name.
+   * - :class:`pygrindvakt.client.Client` accepts a registered
+       ``response_policy`` (also nested in
+       :meth:`~pygrindvakt.client.Client.from_dict`); unknown keys and
+       non-string values raise ``ValueError``.
+     - The provider enforces the policy: the ``private_key_jwt`` algorithm
+       pin (a ``kid`` is then required) and ID token / UserInfo encryption
+       to the client's registered key. Without it a client could sign
+       assertions with any algorithm and receive plaintext-signed tokens.
+     - None; register the policy on the client.
    * - :meth:`pygrindvakt.provider.Provider.authorization_redirect` raises
        ``ValueError`` for reserved id_token claim names in ``extra_claims``
        (:data:`pygrindvakt.provider.RESERVED_ID_TOKEN_CLAIMS`).
