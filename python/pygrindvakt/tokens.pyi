@@ -53,6 +53,10 @@ class AuthCodePayload:
         """Fingerprint of the client registration at authorization time.
 
         ``None`` for codes sealed before 0.6.0; the check is skipped for those.
+
+        Security: if ``None``, the registration binding check is skipped
+        silently, also for codes built by hand. An OP that seals its own codes
+        must pass ``client.registration_fingerprint()``.
         """
     @property
     def userinfo_claims(self) -> dict[str, Any] | None:

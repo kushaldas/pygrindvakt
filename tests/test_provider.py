@@ -3,6 +3,7 @@
 import base64
 import hashlib
 import json
+import time
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -1018,3 +1019,79 @@ def test_code_bound_to_registration():
             auth_header=basic_auth("demo", "s3cret"),
         )
     assert ei.value.code == "invalid_grant"
+
+
+def _self_seal_setup(digest_from_client):
+    """OP that seals its own code; returns (op, store, codec, code)."""
+    kw = {
+        "client_secret": "s3cret",
+        "redirect_uris": [REDIRECT_URI],
+        "grant_types": ["authorization_code", "refresh_token"],
+        "client_name": "Demo RP",
+    }
+    demo = client.Client("demo", **kw)
+    store = client.InMemoryClientStore([demo])
+    codec = tokens.TokenCodec("op-secret")
+    key = keys.signing_key_from_jwk(keys.generate_ec_jwk("P-256"), alg="ES256", kid="op-1")
+    op = provider.Provider(
+        metadata.ProviderMetadata(ISSUER),
+        key,
+        store,
+        codec,
+        token_use_store=provider.InMemoryTokenUseStore(),
+    )
+    now = int(time.time())
+    code = codec.seal_code(
+        tokens.AuthCodePayload(
+            client_id="demo",
+            redirect_uri=REDIRECT_URI,
+            scope="openid",
+            sub="alice",
+            auth_time=now,
+            exp=now + 600,
+            registration_digest=demo.registration_fingerprint() if digest_from_client else None,
+        )
+    )
+    return op, store, code
+
+
+def _redeem(op, code):
+    return op.handle_token_request(
+        list({"grant_type": "authorization_code", "code": code, "redirect_uri": REDIRECT_URI}.items()),
+        TOKEN_URL,
+        auth_header=basic_auth("demo", "s3cret"),
+    )
+
+
+def _rotated_client():
+    return client.Client(
+        "demo",
+        client_secret="s3cret",
+        redirect_uris=[REDIRECT_URI],
+        grant_types=["authorization_code", "refresh_token"],
+        client_name="Renamed",
+    )
+
+
+def test_self_sealed_code_with_fingerprint_unchanged_registration_succeeds():
+    op, _store, code = _self_seal_setup(True)
+    assert _redeem(op, code) is not None
+
+
+def test_self_sealed_code_with_fingerprint_rejects_changed_registration():
+    op, store, code = _self_seal_setup(True)
+    store.put(_rotated_client())
+    with pytest.raises(OAuthError) as ei:
+        _redeem(op, code)
+    assert ei.value.code == "invalid_grant"
+
+
+def test_self_sealed_code_without_digest_skips_registration_check():
+    """Documents core behavior: digest=None silently skips the binding check.
+
+    The docs warn about this; self-sealing OPs must pass
+    client.registration_fingerprint().
+    """
+    op, store, code = _self_seal_setup(False)
+    store.put(_rotated_client())
+    assert _redeem(op, code) is not None

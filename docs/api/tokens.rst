@@ -36,6 +36,22 @@ Codec
       store; ``repr()`` never shows it.
 
    .. py:method:: seal_code(payload: AuthCodePayload) -> str
+
+      When sealing codes yourself, bind them to the registration:
+
+      .. code-block:: python
+
+         payload = AuthCodePayload(
+             client_id=rp.client_id,
+             redirect_uri=redirect_uri,
+             scope="openid",
+             sub="alice",
+             auth_time=now,
+             exp=now + 600,
+             registration_digest=rp.registration_fingerprint(),
+         )
+         code = codec.seal_code(payload)
+
    .. py:method:: open_code(token: str) -> AuthCodePayload
 
       Open an authorization code (checks the type tag and expiry). Raises
@@ -107,6 +123,13 @@ userinfo response.
       (including a key or secret rotation); the client then starts a new
       authorization. ``None`` for codes sealed before 0.6.0, which skip the
       check.
+
+      .. warning::
+
+         If ``None``, the binding check is **skipped silently**, also for
+         codes you build by hand. An OP that seals its own codes must pass
+         ``client.registration_fingerprint()``, otherwise a rotated secret or
+         key does not invalidate outstanding codes.
 
       .. versionadded:: 0.6.0
 

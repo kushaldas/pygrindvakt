@@ -124,6 +124,14 @@ impl Client {
         to_py(py, &self.inner)
     }
 
+    /// Unpadded base64url SHA-256 of the registration snapshot. Pass it as
+    /// `AuthCodePayload.registration_digest` when sealing codes yourself.
+    fn registration_fingerprint(&self) -> PyResult<String> {
+        self.inner
+            .registration_fingerprint()
+            .map_err(|e| PyValueError::new_err(format!("cannot fingerprint Client: {e}")))
+    }
+
     #[getter]
     fn client_id(&self) -> &str {
         &self.inner.client_id

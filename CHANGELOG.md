@@ -11,6 +11,9 @@ adopting a change made in `grindvakt` / `jose-rs` and surfacing it to Python.
 
 ### Added
 
+- `Client.registration_fingerprint()`: the digest to pass as
+  `AuthCodePayload.registration_digest` when your own code seals
+  authorization codes.
 - `AuthCodePayload` takes `registration_digest` and `userinfo_claims`;
   `RefreshTokenPayload` takes `userinfo_claims`. All are optional keywords and
   have matching read-only properties. `userinfo_claims=None` means the UserInfo
@@ -28,6 +31,9 @@ adopting a change made in `grindvakt` / `jose-rs` and surfacing it to Python.
 
 ### Security
 
+- Authorization codes sealed without a `registration_digest` skip the
+  registration check silently. An OP that seals its own codes must pass
+  `Client.registration_fingerprint()`.
 - New authorization codes are bound to the client's registration fingerprint.
   If the registration changes between authorization and the token request,
   including a key or secret rotation, the token endpoint answers

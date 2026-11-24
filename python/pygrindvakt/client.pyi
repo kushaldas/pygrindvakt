@@ -51,6 +51,13 @@ class Client:
         registration). Unknown keys raise ``ValueError``."""
     def to_dict(self) -> dict[str, Any]:
         """The client as a dict."""
+    def registration_fingerprint(self) -> str:
+        """Unpadded base64url SHA-256 of the registration snapshot (credentials,
+        keys and redirect URIs all contribute).
+
+        Pass it as ``AuthCodePayload.registration_digest`` when sealing
+        authorization codes yourself. Changing the registration afterwards makes
+        redemption fail with ``invalid_grant``."""
     @property
     def client_id(self) -> str: ...
     @property

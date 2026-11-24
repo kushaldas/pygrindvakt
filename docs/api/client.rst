@@ -60,6 +60,17 @@ Client
 
       The client as a dict, including ``client_secret`` if set.
 
+   .. py:method:: registration_fingerprint() -> str
+
+      Unpadded base64url SHA-256 of the registration snapshot. Credentials,
+      keys and redirect URIs all contribute. Pass it as
+      :attr:`AuthCodePayload.registration_digest
+      <pygrindvakt.tokens.AuthCodePayload.registration_digest>` when your own
+      code seals authorization codes. If the registration changes afterwards,
+      redeeming the code fails with ``invalid_grant``.
+
+      .. versionadded:: 0.6.0
+
    .. py:property:: client_id
       :type: str
    .. py:property:: client_secret

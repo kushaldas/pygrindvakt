@@ -263,6 +263,8 @@ def use_payload_fields() -> None:
         userinfo_claims={"email": None},
     )
     digest: str | None = code.registration_digest
+    fingerprint: str = client.Client("c").registration_fingerprint()
+    del fingerprint
     ui: dict[str, object] | None = code.userinfo_claims
     refresh = tokens.RefreshTokenPayload(
         client_id="c",

@@ -41,6 +41,22 @@ def test_client_dict_round_trip():
     assert c2.client_name == "N" and c2.allows_redirect("https://x/cb")
 
 
+def test_registration_fingerprint():
+    def mk(**kw):
+        base = {"client_secret": "s", "redirect_uris": ["https://x/cb"], "client_name": "N"}
+        base.update(kw)
+        return client.Client("id", **base)
+
+    c = mk()
+    fp = c.registration_fingerprint()
+    assert isinstance(fp, str) and fp
+    assert fp == c.registration_fingerprint() == mk().registration_fingerprint()
+    assert client.Client.from_dict(c.to_dict()).registration_fingerprint() == fp
+    assert mk(redirect_uris=["https://x/other"]).registration_fingerprint() != fp
+    assert mk(client_secret="t").registration_fingerprint() != fp
+    assert mk(client_name="M").registration_fingerprint() != fp
+
+
 def test_from_dict_rejects_unknown_keys():
     with pytest.raises(ValueError, match="redirect_uri"):
         client.Client.from_dict({"client_id": "x", "redirect_uri": "https://x"})
