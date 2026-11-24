@@ -251,6 +251,31 @@ def use_all() -> None:
     del reveal
 
 
+def use_payload_fields() -> None:
+    code = tokens.AuthCodePayload(
+        client_id="c",
+        redirect_uri="https://x/cb",
+        scope="openid",
+        sub="s",
+        auth_time=1,
+        exp=2,
+        registration_digest="abc",
+        userinfo_claims={"email": None},
+    )
+    digest: str | None = code.registration_digest
+    ui: dict[str, object] | None = code.userinfo_claims
+    refresh = tokens.RefreshTokenPayload(
+        client_id="c",
+        sub="s",
+        scope="openid",
+        auth_time=1,
+        exp=2,
+        userinfo_claims={},
+    )
+    rui: dict[str, object] | None = refresh.userinfo_claims
+    del digest, ui, rui
+
+
 def use_errors() -> None:
     try:
         rp.JwksCache(None, "https://x/jwks", "https://x").verify_id_token("t", "c", "n", ["ES256"])

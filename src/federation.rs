@@ -185,8 +185,16 @@ impl ResolvedEntity {
             &drop_federation_oct_keys(py, self.inner.subject_jwks.clone()),
         )
     }
-    /// The resolve response's `exp` (seconds since epoch): how long the trust
-    /// anchor vouches for the metadata. Use it to bound caching.
+    /// Raw `trust_marks` entries from the trust anchor's signed resolve
+    /// response (empty if absent). NOT verified: check the type, subject,
+    /// issuer signature and lifetime before trusting any entry.
+    #[getter]
+    fn trust_marks<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        to_py(py, &self.inner.trust_marks)
+    }
+    /// Expiry (seconds since epoch) of the resolved result: the earlier of
+    /// the resolve response's `exp` and the earliest expiry in its validated
+    /// trust chain. Use it to bound caching.
     #[getter]
     fn exp(&self) -> Option<u64> {
         self.inner.exp

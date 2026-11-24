@@ -978,3 +978,43 @@ def test_jwks_document_never_contains_oct_key(op):
         doc = op.jwks_document()
     assert caught == []
     assert doc["keys"] and all(k["kty"] != "oct" for k in doc["keys"])
+
+
+def test_code_bound_to_registration():
+    """A code is bound to the registration fingerprint: a changed client -> invalid_grant."""
+    demo = client.Client(
+        "demo",
+        client_secret="s3cret",
+        redirect_uris=[REDIRECT_URI],
+        grant_types=["authorization_code", "refresh_token"],
+        client_name="Demo RP",
+    )
+    store = client.InMemoryClientStore([demo])
+    codec = tokens.TokenCodec("op-secret")
+    key = keys.signing_key_from_jwk(keys.generate_ec_jwk("P-256"), alg="ES256", kid="op-1")
+    op = provider.Provider(
+        metadata.ProviderMetadata(ISSUER),
+        key,
+        store,
+        codec,
+        token_use_store=provider.InMemoryTokenUseStore(),
+    )
+    _req, code = authz(op)
+    digest = codec.open_code(code).registration_digest
+    assert isinstance(digest, str) and digest
+    store.put(
+        client.Client(
+            "demo",
+            client_secret="s3cret",
+            redirect_uris=[REDIRECT_URI],
+            grant_types=["authorization_code", "refresh_token"],
+            client_name="Renamed",
+        )
+    )
+    with pytest.raises(OAuthError) as ei:
+        op.handle_token_request(
+            list({"grant_type": "authorization_code", "code": code, "redirect_uri": REDIRECT_URI}.items()),
+            TOKEN_URL,
+            auth_header=basic_auth("demo", "s3cret"),
+        )
+    assert ei.value.code == "invalid_grant"

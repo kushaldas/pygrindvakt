@@ -7,6 +7,55 @@ needed to track the upstream `grindvakt` library and correct protocol or
 security handling. `pygrindvakt` is a thin PyO3 binding; most entries reflect
 adopting a change made in `grindvakt` / `jose-rs` and surfacing it to Python.
 
+## Unreleased
+
+### Added
+
+- `AuthCodePayload` takes `registration_digest` and `userinfo_claims`;
+  `RefreshTokenPayload` takes `userinfo_claims`. All are optional keywords and
+  have matching read-only properties. `userinfo_claims=None` means the UserInfo
+  response uses `claims`; `{}` releases no claims there. `registration_digest`
+  is `None` for codes sealed before 0.6.0, which skip the registration check.
+  It is not shown in `repr`.
+- `ResolvedEntity.trust_marks`: the raw `trust_marks` entries from the trust
+  anchor's signed resolve response (empty if absent). They are not verified;
+  check type, subject, issuer signature and lifetime before trusting one.
+- `OAuthError` accepts `unmet_authentication_requirements`. Core's own
+  known-code list for `AuthorizationResponse.error_known` omits it, so
+  `error_known` is `False` for that value.
+- The core `UnmetAuthenticationRequirements` error is raised as `AuthnError`
+  with `code="unmet_authentication_requirements"`.
+
+### Security
+
+- New authorization codes are bound to the client's registration fingerprint.
+  If the registration changes between authorization and the token request,
+  including a key or secret rotation, the token endpoint answers
+  `invalid_grant` after client authentication. The client must start a new
+  authorization.
+- `ResolvedEntity.exp` is now the earlier of the resolve response's `exp` and
+  the earliest expiry in its validated trust chain, so a cache bounded by it
+  cannot outlive the chain.
+
+### Changed
+
+- Bind `grindvakt` 0.13.0 and `jose-rs` 0.13.0 (MSRV stays Rust 1.89).
+- Unexpired 0.5.x authorization codes, access tokens and refresh tokens still
+  open with the same secret. Old codes have no registration fingerprint, and
+  old codes and refresh tokens use `claims` for both the ID token and UserInfo.
+- New UserInfo grants no longer carry application mappings to provider-owned
+  names such as `acr` and `auth_time`.
+- Unregistered JWT claims and header parameters are serialized in sorted key
+  order.
+- `"Ed448"` now parses in `jwt.Validation.with_allowed_algorithms`.
+- The client response policy added in core 0.13 is left at its default.
+  `Client.from_dict` still rejects unknown keys.
+
+### Fixed
+
+- Refresh keeps individually approved claims in their original destination
+  (ID token or UserInfo).
+
 ## [0.5.0] - 2026-11-12
 
 ### Added

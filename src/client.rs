@@ -87,6 +87,7 @@ impl Client {
                 scope,
                 subject_type: subject_type.unwrap_or_else(|| "public".into()),
                 client_name,
+                response_policy: Default::default(),
             },
         })
     }

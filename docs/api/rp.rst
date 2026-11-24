@@ -798,7 +798,8 @@ The authorization response
       .. warning::
 
          "Known" is **wider** than what :class:`pygrindvakt.OAuthError`
-         accepts. ``OAuthError`` knows 12 codes; the other 8 known codes
+         accepts. ``OAuthError`` accepts 12 of them (plus ``unmet_authentication_requirements``,
+         see below); the other 8 known codes
          (``interaction_required``, ``account_selection_required``,
          ``consent_required``, ``invalid_request_uri``,
          ``invalid_request_object``, ``request_not_supported``,
@@ -806,6 +807,10 @@ The authorization response
          ``OAuthError(resp.error)`` raise :class:`ValueError`. Never build an
          ``OAuthError`` from a callback value without catching
          ``ValueError``; branch on the ``resp.error`` string instead.
+
+         Conversely, ``unmet_authentication_requirements`` is accepted by
+         ``OAuthError`` since 0.6.0 but is not in core's known list, so
+         ``error_known`` is ``False`` for it.
 
    .. py:method:: matches_iss(expected: str, *, required: bool = True) -> bool
 

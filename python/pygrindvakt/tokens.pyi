@@ -20,6 +20,8 @@ class AuthCodePayload:
         code_challenge_method: str | None = ...,
         claims: dict[str, Any] | None = ...,
         acr: str | None = ...,
+        registration_digest: str | None = ...,
+        userinfo_claims: dict[str, Any] | None = ...,
     ) -> None: ...
     @staticmethod
     def from_dict(d: dict[str, Any]) -> AuthCodePayload: ...
@@ -46,6 +48,16 @@ class AuthCodePayload:
     def exp(self) -> int: ...
     @property
     def acr(self) -> str | None: ...
+    @property
+    def registration_digest(self) -> str | None:
+        """Fingerprint of the client registration at authorization time.
+
+        ``None`` for codes sealed before 0.6.0; the check is skipped for those.
+        """
+    @property
+    def userinfo_claims(self) -> dict[str, Any] | None:
+        """Claims for the UserInfo response. ``None`` means use ``claims``;
+        ``{}`` releases none."""
     def __repr__(self) -> str: ...
 
 class AccessTokenPayload:
@@ -94,6 +106,7 @@ class RefreshTokenPayload:
         claims: dict[str, Any] | None = ...,
         acr: str | None = ...,
         cnf_jkt: str | None = ...,
+        userinfo_claims: dict[str, Any] | None = ...,
     ) -> None: ...
     @staticmethod
     def from_dict(d: dict[str, Any]) -> RefreshTokenPayload: ...
@@ -116,6 +129,10 @@ class RefreshTokenPayload:
     def acr(self) -> str | None: ...
     @property
     def cnf_jkt(self) -> str | None: ...
+    @property
+    def userinfo_claims(self) -> dict[str, Any] | None:
+        """Claims for the UserInfo response. ``None`` means use ``claims``;
+        ``{}`` releases none."""
     def __repr__(self) -> str: ...
 
 class TokenCodec:

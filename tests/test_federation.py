@@ -59,15 +59,25 @@ def subordinate_statement(signer, iss: str, sub: str, subject_jwks: dict) -> str
     return jwt.sign(signer, claims, typ=federation.ENTITY_STATEMENT_TYP)
 
 
-def resolve_response(signer, iss: str, sub: str, metadata: dict, chain: list[str]) -> str:
+def resolve_response(
+    signer,
+    iss: str,
+    sub: str,
+    metadata: dict,
+    chain: list[str],
+    trust_marks=None,
+    exp: int | None = None,
+) -> str:
     claims = {
         "iss": iss,
         "sub": sub,
         "iat": now(),
-        "exp": now() + 3600,
+        "exp": now() + 3600 if exp is None else exp,
         "metadata": metadata,
         "trust_chain": chain,
     }
+    if trust_marks is not None:
+        claims["trust_marks"] = trust_marks
     return jwt.sign(signer, claims, typ=federation.RESOLVE_RESPONSE_TYP)
 
 
@@ -149,11 +159,17 @@ class Federation:
     def chain(self) -> list[str]:
         return [self.leaf_ec, self.subordinate, self.ta_ec]
 
-    def network(self, chain: list[str] | None = None, resolve_signer=None) -> FakeHttpClient:
+    def network(
+        self,
+        chain: list[str] | None = None,
+        resolve_signer=None,
+        trust_marks=None,
+        resolve_exp: int | None = None,
+    ) -> FakeHttpClient:
         signer = resolve_signer or self.ta_key
         if chain is None:
             chain = self.chain()
-        resolved = resolve_response(signer, TA, LEAF, LEAF_METADATA, chain)
+        resolved = resolve_response(signer, TA, LEAF, LEAF_METADATA, chain, trust_marks, resolve_exp)
         return FakeHttpClient(
             {
                 TA + WELL_KNOWN: (200, self.ta_ec, "application/entity-statement+jwt"),
@@ -383,6 +399,33 @@ def test_http_client_exception_fails_closed(fed, unraisable):
 # ---------------------------------------------------------------------------
 
 
+def test_resolved_entity_exposes_trust_marks(fed):
+    """Raw trust_marks from the signed resolve response are exposed, as a fresh copy per read."""
+    marks = [{"trust_mark_type": "https://tm.example/t", "trust_mark": "a.b.c"}]
+    entity = federation.resolve_via_trust_anchors(fed.network(trust_marks=marks), LEAF, fed.trust_anchors())
+    assert entity.trust_marks == marks
+    first = entity.trust_marks
+    first.append("mutated")
+    first[0]["trust_mark_type"] = "changed"
+    assert entity.trust_marks == marks
+
+
+def test_resolve_rejects_non_array_trust_marks(fed):
+    with pytest.raises(pygrindvakt.GrindvaktError):
+        federation.resolve_via_trust_anchors(fed.network(trust_marks={"not": "an array"}), LEAF, fed.trust_anchors())
+
+
+def test_resolved_entity_exp_bounded_by_chain(fed):
+    """exp is the min of the resolve response exp and the earliest chain statement exp."""
+    short = now() + 600
+    claims = {"iss": TA, "sub": LEAF, "iat": now(), "exp": short, "jwks": fed.leaf_key.to_public_jwks()}
+    sub_short = jwt.sign(fed.ta_key, claims, typ=federation.ENTITY_STATEMENT_TYP)
+    chain = [fed.leaf_ec, sub_short, fed.ta_ec]
+    http = fed.network(chain=chain, resolve_exp=now() + 7200)
+    entity = federation.resolve_via_trust_anchors(http, LEAF, fed.trust_anchors())
+    assert entity.exp == short
+
+
 def test_resolve_via_trust_anchors_success(fed):
     """A valid chain rooted at the configured TA yields the resolved entity."""
     http = fed.network()
@@ -395,6 +438,7 @@ def test_resolve_via_trust_anchors_success(fed):
     assert entity.metadata["openid_relying_party"]["client_name"] == "RP"
     assert entity.subject_jwks == fed.leaf_key.to_public_jwks()
     assert entity.exp is not None and entity.exp > now()
+    assert entity.trust_marks == []
     assert repr(entity).startswith(f'ResolvedEntity(issuer="{TA}", subject="{LEAF}", exp=Some(')
 
     # Only the TA's well-known and its resolve endpoint were contacted.

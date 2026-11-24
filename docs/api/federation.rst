@@ -111,8 +111,22 @@ Classes
    .. py:property:: exp
       :type: int | None
 
-      The resolve response's ``exp`` (seconds since epoch): how long the
-      trust anchor vouches for the metadata. Use it to bound caching.
+      Expiry (seconds since epoch) of the resolved result: the earlier of
+      the resolve response's ``exp`` and the earliest expiry in its
+      validated trust chain. Use it to bound caching.
+
+      .. versionchanged:: 0.6.0
+         Bounded by the trust chain's expiries, not only the resolve
+         response's ``exp``.
+
+   .. py:property:: trust_marks
+      :type: list[Any]
+
+      The raw ``trust_marks`` entries from the trust anchor's signed resolve
+      response (empty if absent). They are **not verified**: check the type,
+      subject, issuer signature and lifetime before trusting any entry.
+
+      .. versionadded:: 0.6.0
 
 .. py:class:: CollectionEntity(*, entity_id: str, display_name: str, logo_uri: str | None = None)
 

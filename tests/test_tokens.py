@@ -89,3 +89,89 @@ def test_payload_from_dict():
 def test_codec_repr_never_renders_the_secret():
     r = repr(tokens.TokenCodec("hunter2-super-secret"))
     assert "hunter2" not in r and "<secret>" in r
+
+
+def _refresh(**kw):
+    return tokens.RefreshTokenPayload(
+        client_id="demo",
+        sub="alice",
+        scope="openid",
+        auth_time=1,
+        exp=int(time.time()) + 60,
+        **kw,
+    )
+
+
+def _code_kw(**kw):
+    return tokens.AuthCodePayload(
+        client_id="demo",
+        redirect_uri="https://rp/cb",
+        scope="openid",
+        sub="alice",
+        auth_time=1,
+        exp=int(time.time()) + 60,
+        claims={"email": "a@b"},
+        **kw,
+    )
+
+
+def test_new_payload_fields_round_trip():
+    codec = tokens.TokenCodec("secret")
+    code = _code_kw(registration_digest="dig-1", userinfo_claims={"email": "u@b", "n": 1})
+    opened = codec.open_code(codec.seal_code(code))
+    assert opened.registration_digest == "dig-1"
+    assert opened.userinfo_claims == {"email": "u@b", "n": 1}
+    again = tokens.AuthCodePayload.from_dict(opened.to_dict())
+    assert again.registration_digest == "dig-1" and again.userinfo_claims == {"email": "u@b", "n": 1}
+
+    rt = _refresh(userinfo_claims={"email": "u@b"})
+    ropened = codec.open_refresh_token(codec.seal_refresh_token(rt))
+    assert ropened.userinfo_claims == {"email": "u@b"}
+    assert tokens.RefreshTokenPayload.from_dict(ropened.to_dict()).userinfo_claims == {"email": "u@b"}
+
+
+def test_userinfo_claims_none_vs_empty():
+    codec = tokens.TokenCodec("secret")
+    for make, seal, opn in (
+        (_code_kw, codec.seal_code, codec.open_code),
+        (_refresh, codec.seal_refresh_token, codec.open_refresh_token),
+    ):
+        assert make().userinfo_claims is None
+        assert make(userinfo_claims=None).userinfo_claims is None
+        assert make(userinfo_claims={}).userinfo_claims == {}
+        assert opn(seal(make())).userinfo_claims is None
+        assert opn(seal(make(userinfo_claims={}))).userinfo_claims == {}
+        assert make().claims == make(userinfo_claims={}).claims
+
+
+def test_pre_0_6_dict_shape_loads():
+    code = tokens.AuthCodePayload.from_dict(
+        {
+            "client_id": "c",
+            "redirect_uri": "https://rp/cb",
+            "scope": "openid",
+            "sub": "s",
+            "auth_time": 1,
+            "exp": 2,
+            "claims": {"email": "a@b"},
+        }
+    )
+    assert code.registration_digest is None and code.userinfo_claims is None
+    d = code.to_dict()
+    assert "registration_digest" not in d and "userinfo_claims" not in d
+    rt = tokens.RefreshTokenPayload.from_dict(
+        {"client_id": "c", "sub": "s", "scope": "openid", "auth_time": 1, "exp": 2}
+    )
+    assert rt.userinfo_claims is None
+    assert "userinfo_claims" not in rt.to_dict()
+
+
+def test_registration_digest_not_in_repr():
+    assert "secret-digest" not in repr(_code_kw(registration_digest="secret-digest"))
+
+
+def test_bad_userinfo_claims_type_raises():
+    with pytest.raises((TypeError, ValueError)):
+        _code_kw(userinfo_claims="nope")
+    with pytest.raises((TypeError, ValueError)):
+        _refresh(userinfo_claims=[1, 2])
