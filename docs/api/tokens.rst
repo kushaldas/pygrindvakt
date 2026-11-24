@@ -190,6 +190,13 @@ userinfo response.
    each ``refresh_token`` grant returns a new one and records the old one as
    consumed.
 
+   .. note::
+
+      Refresh tokens are not bound to the client registration. Rotating a
+      client's key or secret does not invalidate refresh tokens that were
+      already issued; only client authentication (and DPoP binding, if used)
+      protects them at redemption.
+
    .. py:staticmethod:: from_dict(d: dict[str, Any]) -> RefreshTokenPayload
    .. py:method:: to_dict() -> dict[str, Any]
 
