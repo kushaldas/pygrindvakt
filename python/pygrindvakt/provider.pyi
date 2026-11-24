@@ -54,6 +54,26 @@ class TokenLifetimes:
     def refresh_token_ttl(self) -> int: ...
     def __repr__(self) -> str: ...
 
+class AuthorizedClaims:
+    """Per-destination claim release decisions for
+    :meth:`Provider.authorization_redirect_with_authorized_claims`.
+
+    ``id_token`` claims go into the ID token; ``userinfo`` claims are returned
+    by UserInfo. Put a claim in both only when both destinations are
+    authorized to receive it. Values keep their JSON types. Reserved claim
+    names in ``RESERVED_ID_TOKEN_CLAIMS`` raise ``ValueError``; ``None`` for
+    either map raises ``TypeError``.
+
+    .. versionadded:: 0.7.0
+    """
+
+    def __init__(self, *, id_token: dict[str, Any], userinfo: dict[str, Any]) -> None: ...
+    @property
+    def id_token(self) -> dict[str, Any]: ...
+    @property
+    def userinfo(self) -> dict[str, Any]: ...
+    def __repr__(self) -> str: ...
+
 class TokenResponse:
     """A successful token-endpoint response. ``to_dict()`` is exactly the JSON
     body to send (with ``cache-control: no-store``)."""
@@ -165,6 +185,33 @@ class Provider:
         on, use ``authorization_error_redirect`` instead so the error carries
         ``iss``; in query mode a registered ``redirect_uri`` that already has
         an ``iss`` query parameter raises ``OAuthError(server_error)``.
+
+        For separate ID token and UserInfo release use
+        ``authorization_redirect_with_authorized_claims``.
+        """
+    def authorization_redirect_with_authorized_claims(
+        self,
+        request: AuthorizationRequest,
+        sub: str,
+        claims: AuthorizedClaims,
+        *,
+        acr: str | None = ...,
+        auth_time: int | None = ...,
+    ) -> Response:
+        """Like ``authorization_redirect``, with separate ID token and UserInfo
+        release decisions.
+
+        No scope filter is applied: ``claims`` is released as given, so apply
+        scope and release policy first. Put a claim in both maps only if both
+        destinations are authorized to receive it. The registration
+        fingerprint and the UserInfo claim set are always sealed into the
+        code. Refresh keeps the split; if the client drops a previously granted
+        scope at refresh, the matching standard claims are removed from both
+        destinations. ``sub`` must be a public subject: pairwise clients raise
+        ``OAuthError(unauthorized_client)``. ``auth_time`` defaults to issuance
+        time.
+
+        .. versionadded:: 0.7.0
         """
     def authorization_error_redirect(self, request: AuthorizationRequest, error: OAuthError) -> Response:
         """Render an authorization error redirect for ``request`` in its

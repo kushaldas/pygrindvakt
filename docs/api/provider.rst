@@ -40,6 +40,23 @@ Constants
    Claim names that :meth:`Provider.authorization_redirect` refuses in
    ``extra_claims``.
 
+AuthorizedClaims
+----------------
+
+.. py:class:: AuthorizedClaims(*, id_token: dict[str, Any], userinfo: dict[str, Any])
+
+   Per-destination claim release decisions for
+   :meth:`Provider.authorization_redirect_with_authorized_claims`. Both
+   keywords are required; ``None`` raises ``TypeError``. Values keep their
+   JSON types. Names in :data:`RESERVED_ID_TOKEN_CLAIMS` in either map raise
+   ``ValueError``. The instance is immutable; ``id_token`` and ``userinfo``
+   return fresh dicts, and ``repr()`` shows claim names only.
+
+   Put a claim in both maps only if both destinations are authorized to
+   receive it.
+
+   .. versionadded:: 0.7.0
+
 Provider
 --------
 
@@ -166,6 +183,28 @@ Provider
          (backslash, invisible or bidi characters, userinfo) raises
          ``OAuthError(invalid_request)`` before anything is minted, even when
          the client registered it; core alone accepted these.
+
+   .. py:method:: authorization_redirect_with_authorized_claims(request: AuthorizationRequest, sub: str, claims: AuthorizedClaims, *, acr: str | None = None, auth_time: int | None = None) -> Response
+
+      Like :meth:`authorization_redirect`, but the ID token and the UserInfo
+      response receive separate claim sets from ``claims``. The request is
+      revalidated and the ``redirect_uri`` checked as in
+      :meth:`authorization_redirect`, and errors are rendered the same way.
+
+      **No scope filter is applied**: ``claims`` is released as given, so
+      apply the granted scopes and your release policy before building it. Put
+      a claim in both maps only if both destinations are authorized to receive
+      it. The code always seals the registration fingerprint and an explicit
+      UserInfo claim set (``{}`` releases nothing there beyond ``sub``).
+      Refresh keeps the split. If the client drops a previously granted scope
+      at refresh, the matching standard claims are removed from both
+      destinations.
+
+      ``sub`` must be non-empty and the client's subject type must be
+      ``public``; a pairwise client raises ``OAuthError(unauthorized_client)``.
+      ``auth_time`` (Unix seconds) defaults to issuance time.
+
+      .. versionadded:: 0.7.0
 
    .. py:method:: authorization_error_redirect(request: AuthorizationRequest, error: OAuthError) -> Response
 

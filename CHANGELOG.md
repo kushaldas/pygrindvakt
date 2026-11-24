@@ -7,6 +7,23 @@ needed to track the upstream `grindvakt` library and correct protocol or
 security handling. `pygrindvakt` is a thin PyO3 binding; most entries reflect
 adopting a change made in `grindvakt` / `jose-rs` and surfacing it to Python.
 
+## [Unreleased]
+
+### Added
+
+- `provider.AuthorizedClaims(*, id_token, userinfo)` and
+  `Provider.authorization_redirect_with_authorized_claims(request, sub, claims,
+  *, acr=None, auth_time=None)`: release different claims to the ID token and
+  to UserInfo. No scope filter is applied; the code seals the registration
+  fingerprint and an explicit UserInfo claim set.
+
+### Security
+
+- Documented hand-sealing authorization codes as an advanced path: omitting
+  `registration_digest` skips the registration check and
+  `userinfo_claims=None` over-releases claims at UserInfo. Use
+  `authorization_redirect_with_authorized_claims` instead.
+
 ## [0.6.0] - 2026-11-24
 
 ### Added

@@ -68,6 +68,15 @@ framework integrations cannot accidentally omit deployment-critical choices.
        hiding an attempt to override the subject or nonce.
      - None; use ``sub`` and ``acr`` parameters for those, and
        ``external_claims`` for user attributes.
+   * - Hand-sealed codes (:meth:`pygrindvakt.tokens.TokenCodec.seal_code`)
+       skip the registration check when ``registration_digest`` is omitted,
+       and release the full ``claims`` map at UserInfo when
+       ``userinfo_claims=None``.
+     - Without the digest a rotated secret or key does not invalidate
+       outstanding codes; ``userinfo_claims=None`` over-releases personal
+       data to UserInfo.
+     - :meth:`pygrindvakt.provider.Provider.authorization_redirect_with_authorized_claims`
+       seals the digest and an explicit UserInfo claim set itself.
    * - :class:`pygrindvakt.http.ReqwestClient` never follows redirects,
        enforces connect / read / total timeouts, and caps response bodies
        (streamed, so ``Content-Length`` cannot lie). Zero values are

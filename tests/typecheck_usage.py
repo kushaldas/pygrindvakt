@@ -6,7 +6,7 @@ the built-in ``ReqwestClient``, ``None`` and a custom protocol client.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pygrindvakt.http
 from pygrindvakt import (
@@ -463,6 +463,16 @@ def use_authorization_response_iss(
     )
     resp: pygrindvakt.http.Response = op.authorization_error_redirect(req, OAuthError("access_denied", state=req.state))
     del resp
+
+
+def use_authorized_claims(op: provider.Provider, req: request.AuthorizationRequest) -> None:
+    ac = provider.AuthorizedClaims(id_token={"name": "A"}, userinfo={"email": "a@x"})
+    idc: dict[str, Any] = ac.id_token
+    uic: dict[str, Any] = ac.userinfo
+    resp: pygrindvakt.http.Response = op.authorization_redirect_with_authorized_claims(
+        req, "alice", ac, acr="urn:acr:2", auth_time=1
+    )
+    del idc, uic, resp
 
 
 def use_testing(op: provider.Provider, key: keys.SigningKey) -> None:

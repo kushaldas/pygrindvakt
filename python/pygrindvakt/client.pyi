@@ -56,8 +56,9 @@ class Client:
         """Unpadded base64url SHA-256 of the registration snapshot (credentials,
         keys and redirect URIs all contribute).
 
-        Pass it as ``AuthCodePayload.registration_digest`` when sealing
-        authorization codes yourself. Changing the registration afterwards makes
+        Pass it as ``AuthCodePayload.registration_digest`` only when hand-sealing
+        authorization codes (advanced);
+        ``Provider.authorization_redirect_with_authorized_claims`` seals it itself. Changing the registration afterwards makes
         redemption fail with ``invalid_grant``."""
     @property
     def client_id(self) -> str: ...

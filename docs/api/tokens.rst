@@ -37,7 +37,10 @@ Codec
 
    .. py:method:: seal_code(payload: AuthCodePayload) -> str
 
-      When sealing codes yourself, bind them to the registration:
+      Prefer :meth:`pygrindvakt.provider.Provider.authorization_redirect_with_authorized_claims`,
+      which seals the registration fingerprint and UserInfo claim set for you.
+      Sealing codes by hand is an advanced path. If you do, bind them to the
+      registration:
 
       .. code-block:: python
 
@@ -127,9 +130,12 @@ userinfo response.
       .. warning::
 
          If ``None``, the binding check is **skipped silently**, also for
-         codes you build by hand. An OP that seals its own codes must pass
-         ``client.registration_fingerprint()``, otherwise a rotated secret or
-         key does not invalidate outstanding codes.
+         codes you build by hand. Prefer
+         :meth:`Provider.authorization_redirect_with_authorized_claims
+         <pygrindvakt.provider.Provider.authorization_redirect_with_authorized_claims>`,
+         which seals it for you. An OP that hand-seals its codes (advanced)
+         must pass ``client.registration_fingerprint()``, otherwise a rotated
+         secret or key does not invalidate outstanding codes.
 
       .. versionadded:: 0.6.0
 
@@ -146,7 +152,10 @@ userinfo response.
          full ``claims`` map at the UserInfo endpoint. To release no
          application claims there, pass ``{}``. Never forward a value that may
          be ``None`` when you mean "none"; that silently over-releases
-         per-attribute personal data.
+         per-attribute personal data. Prefer
+         :meth:`Provider.authorization_redirect_with_authorized_claims
+         <pygrindvakt.provider.Provider.authorization_redirect_with_authorized_claims>`
+         over hand-sealing: it always sets this explicitly.
 
       .. versionadded:: 0.6.0
 

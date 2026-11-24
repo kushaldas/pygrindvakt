@@ -65,8 +65,11 @@ Client
       Unpadded base64url SHA-256 of the registration snapshot. Credentials,
       keys and redirect URIs all contribute. Pass it as
       :attr:`AuthCodePayload.registration_digest
-      <pygrindvakt.tokens.AuthCodePayload.registration_digest>` when your own
-      code seals authorization codes. If the registration changes afterwards,
+      <pygrindvakt.tokens.AuthCodePayload.registration_digest>` only when your
+      own code hand-seals authorization codes (advanced).
+      :meth:`Provider.authorization_redirect_with_authorized_claims
+      <pygrindvakt.provider.Provider.authorization_redirect_with_authorized_claims>`
+      seals it itself. If the registration changes afterwards,
       redeeming the code fails with ``invalid_grant``.
 
       .. versionadded:: 0.6.0

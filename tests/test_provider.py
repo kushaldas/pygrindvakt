@@ -1283,3 +1283,182 @@ def test_refresh_userinfo_claims_none_and_omitted_inherit_claims(userinfo_claims
         assert ui == {"sub": "alice", "email": "alice@example.com"}
     else:
         assert ui == {"sub": "alice"}
+
+
+# ---- AuthorizedClaims / authorization_redirect_with_authorized_claims ----
+
+
+def _ac_request(scope="openid email", response_type="code", **extra):
+    params = {
+        "client_id": "demo",
+        "response_type": response_type,
+        "redirect_uri": REDIRECT_URI,
+        "scope": scope,
+        "state": "st",
+        "nonce": "n1",
+    }
+    params.update(extra)
+    return request.AuthorizationRequest.from_params(list(params.items()))
+
+
+def _ac_code(op, claims, scope="openid email", **kw):
+    resp = op.authorization_redirect_with_authorized_claims(_ac_request(scope), "alice", claims, **kw)
+    return code_from_redirect(resp)
+
+
+_SPLIT = {"id_token": {"name": "A"}, "userinfo": {"email": "a@x", "email_verified": True}}
+
+
+def test_authorized_claims_split_release():
+    op, _codec, _demo = _uc_op()
+    ac = provider.AuthorizedClaims(**_SPLIT)
+    tr = _redeem(op, _ac_code(op, ac))
+    idc = jwt.peek_claims_unverified(tr.id_token)
+    assert idc["name"] == "A" and "email" not in idc and "email_verified" not in idc
+    assert op.userinfo(tr.access_token) == {"sub": "alice", "email": "a@x", "email_verified": True}
+
+
+def test_authorized_claims_empty_userinfo_releases_only_sub():
+    op, _codec, _demo = _uc_op()
+    ac = provider.AuthorizedClaims(id_token={"name": "A"}, userinfo={})
+    tr = _redeem(op, _ac_code(op, ac))
+    assert op.userinfo(tr.access_token) == {"sub": "alice"}
+
+
+def test_authorized_claims_code_seals_digest_and_userinfo_claims():
+    op, codec, demo = _uc_op()
+    payload = codec.open_code(_ac_code(op, provider.AuthorizedClaims(**_SPLIT)))
+    assert payload.registration_digest == demo.registration_fingerprint()
+    assert payload.userinfo_claims == {"email": "a@x", "email_verified": True}
+    empty = codec.open_code(_ac_code(op, provider.AuthorizedClaims(id_token={}, userinfo={})))
+    assert empty.userinfo_claims == {}
+
+
+def test_authorized_claims_refresh_keeps_split():
+    op, _codec, _demo = _uc_op()
+    tr = _redeem(op, _ac_code(op, provider.AuthorizedClaims(**_SPLIT)))
+    tr2 = op.handle_token_request(
+        list({"grant_type": "refresh_token", "refresh_token": tr.refresh_token}.items()),
+        TOKEN_URL,
+        auth_header=basic_auth("demo", "s3cret"),
+    )
+    idc = jwt.peek_claims_unverified(tr2.id_token)
+    assert idc["name"] == "A" and "email" not in idc
+    assert op.userinfo(tr2.access_token) == {"sub": "alice", "email": "a@x", "email_verified": True}
+
+
+def test_authorized_claims_implicit_id_token_token(op_key):
+    c = client.Client(
+        "flows",
+        client_secret="secret",
+        redirect_uris=[REDIRECT_URI],
+        response_types=["id_token token"],
+        scope="openid email",
+    )
+    flow_op = provider.Provider(
+        metadata.ProviderMetadata(ISSUER),
+        op_key,
+        client.InMemoryClientStore([c]),
+        tokens.TokenCodec("flow-secret"),
+        token_use_store=provider.InMemoryTokenUseStore(),
+    )
+    req = request.AuthorizationRequest.from_params(
+        list(
+            {
+                "client_id": "flows",
+                "response_type": "id_token token",
+                "redirect_uri": REDIRECT_URI,
+                "scope": "openid email",
+                "nonce": "n",
+            }.items()
+        )
+    )
+    resp = flow_op.authorization_redirect_with_authorized_claims(req, "alice", provider.AuthorizedClaims(**_SPLIT))
+    values = parse_qs(urlparse(resp.header("location")).fragment)
+    idc = jwt.peek_claims_unverified(values["id_token"][0])
+    assert idc["name"] == "A" and "email" not in idc
+    assert flow_op.userinfo(values["access_token"][0]) == {"sub": "alice", "email": "a@x", "email_verified": True}
+
+
+def test_authorized_claims_validation():
+    ac = provider.AuthorizedClaims(**_SPLIT)
+    assert ac.id_token == {"name": "A"} and ac.userinfo == _SPLIT["userinfo"]
+    ac.id_token["x"] = 1  # fresh dict per access
+    assert ac.id_token == {"name": "A"}
+    assert "a@x" not in repr(ac) and "email" in repr(ac)
+    for name in ["sub", "iss", "nonce", "acr", "auth_time", "at_hash"]:
+        with pytest.raises(ValueError, match="reserved"):
+            provider.AuthorizedClaims(id_token={name: "x"}, userinfo={})
+        with pytest.raises(ValueError, match="reserved"):
+            provider.AuthorizedClaims(id_token={}, userinfo={name: "x"})
+    with pytest.raises(TypeError):
+        provider.AuthorizedClaims(id_token=None, userinfo={})
+    with pytest.raises(TypeError):
+        provider.AuthorizedClaims(id_token={}, userinfo=None)
+    with pytest.raises(TypeError):
+        provider.AuthorizedClaims(id_token={})  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        provider.AuthorizedClaims({}, {})  # type: ignore[misc]
+
+
+def test_authorized_claims_applies_no_scope_filter():
+    op, _codec, _demo = _uc_op()
+    ac = provider.AuthorizedClaims(id_token={"dept": "x"}, userinfo={"phone_number": "1"})
+    tr = _redeem(op, _ac_code(op, ac, scope="openid"))
+    assert jwt.peek_claims_unverified(tr.id_token)["dept"] == "x"
+    assert op.userinfo(tr.access_token) == {"sub": "alice", "phone_number": "1"}
+
+
+def test_authorized_claims_acr_and_auth_time():
+    op, _codec, _demo = _uc_op()
+    ac = provider.AuthorizedClaims(id_token={}, userinfo={})
+    tr = _redeem(op, _ac_code(op, ac, acr="urn:acr:2", auth_time=1_700_000_000))
+    idc = jwt.peek_claims_unverified(tr.id_token)
+    assert idc["acr"] == "urn:acr:2" and idc["auth_time"] == 1_700_000_000
+
+
+def test_authorized_claims_pairwise_client_refused(op_key):
+    c = client.Client(
+        "pw",
+        client_secret="s",
+        redirect_uris=[REDIRECT_URI],
+        subject_type="pairwise",
+    )
+    pw_op = provider.Provider(
+        metadata.ProviderMetadata(ISSUER),
+        op_key,
+        client.InMemoryClientStore([c]),
+        tokens.TokenCodec("pw-secret"),
+        token_use_store=provider.InMemoryTokenUseStore(),
+    )
+    req = request.AuthorizationRequest.from_params(
+        [("client_id", "pw"), ("response_type", "code"), ("redirect_uri", REDIRECT_URI), ("scope", "openid")]
+    )
+    with pytest.raises(OAuthError) as ei:
+        pw_op.authorization_redirect_with_authorized_claims(
+            req, "alice", provider.AuthorizedClaims(id_token={}, userinfo={})
+        )
+    assert ei.value.code == "unauthorized_client"
+
+
+def test_authorized_claims_refuses_crlf_redirect_uri(op_key):
+    evil = REDIRECT_URI + "\r\nSet-Cookie: x=1"
+    c = client.Client("crlf", client_secret="s", redirect_uris=[evil])
+    crlf_op = provider.Provider(
+        metadata.ProviderMetadata(ISSUER),
+        op_key,
+        client.InMemoryClientStore([c]),
+        tokens.TokenCodec("crlf-secret"),
+        token_use_store=provider.InMemoryTokenUseStore(),
+    )
+    base = request.AuthorizationRequest.from_params(
+        [("client_id", "crlf"), ("response_type", "code"), ("redirect_uri", REDIRECT_URI), ("scope", "openid")]
+    )
+    stored = base.to_dict()
+    stored["redirect_uri"] = evil
+    req = request.AuthorizationRequest.from_dict(stored)
+    with pytest.raises(OAuthError) as ei:
+        crlf_op.authorization_redirect_with_authorized_claims(
+            req, "alice", provider.AuthorizedClaims(id_token={}, userinfo={})
+        )
+    assert ei.value.code == "invalid_request"
