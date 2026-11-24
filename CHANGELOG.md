@@ -26,7 +26,8 @@ adopting a change made in `grindvakt` / `jose-rs` and surfacing it to Python.
 - `AuthCodePayload` takes `registration_digest` and `userinfo_claims`;
   `RefreshTokenPayload` takes `userinfo_claims`. All are optional keywords and
   have matching read-only properties. `userinfo_claims=None` means the UserInfo
-  response uses `claims`; `{}` releases no claims there. `registration_digest`
+  response uses `claims`; `{}` releases no claims there. `None` and omitted
+  both inherit `claims`; pass `{}` to withhold. `registration_digest`
   is `None` for codes sealed before 0.6.0, which skip the registration check.
   It is not shown in `repr`.
 - `ResolvedEntity.trust_marks`: the raw `trust_marks` entries from the trust

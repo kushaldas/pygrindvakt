@@ -1197,3 +1197,89 @@ def test_registered_id_token_encryption_yields_jwe(op_key):
         auth_header=basic_auth("enc-rp", "s3cret"),
     )
     assert tr.id_token.count(".") == 4
+
+
+# Pins the contract in the docs/api/tokens.rst warning on ``userinfo_claims``:
+# None and omitted both inherit ``claims``; only ``{}`` withholds.
+_OMIT = object()
+
+
+def _uc_kwargs(userinfo_claims):
+    return {} if userinfo_claims is _OMIT else {"userinfo_claims": userinfo_claims}
+
+
+def _uc_op():
+    demo = client.Client(
+        "demo",
+        client_secret="s3cret",
+        redirect_uris=[REDIRECT_URI],
+        grant_types=["authorization_code", "refresh_token"],
+    )
+    codec = tokens.TokenCodec("op-secret")
+    key = keys.signing_key_from_jwk(keys.generate_ec_jwk("P-256"), alg="ES256", kid="op-1")
+    op = provider.Provider(
+        metadata.ProviderMetadata(ISSUER),
+        key,
+        client.InMemoryClientStore([demo]),
+        codec,
+        token_use_store=provider.InMemoryTokenUseStore(),
+    )
+    return op, codec, demo
+
+
+_UC_CASES = [
+    pytest.param(_OMIT, True, id="omitted"),
+    pytest.param(None, True, id="none"),
+    pytest.param({}, False, id="empty"),
+]
+
+
+@pytest.mark.parametrize(("userinfo_claims", "released"), _UC_CASES)
+def test_code_userinfo_claims_none_and_omitted_inherit_claims(userinfo_claims, released):
+    op, codec, demo = _uc_op()
+    now = int(time.time())
+    code = codec.seal_code(
+        tokens.AuthCodePayload(
+            client_id="demo",
+            redirect_uri=REDIRECT_URI,
+            scope="openid email",
+            sub="alice",
+            auth_time=now,
+            exp=now + 600,
+            claims={"email": "alice@example.com"},
+            registration_digest=demo.registration_fingerprint(),
+            **_uc_kwargs(userinfo_claims),
+        )
+    )
+    ui = op.userinfo(_redeem(op, code).access_token)
+    if released:
+        assert ui == {"sub": "alice", "email": "alice@example.com"}
+    else:
+        assert ui == {"sub": "alice"}
+
+
+@pytest.mark.parametrize(("userinfo_claims", "released"), _UC_CASES)
+def test_refresh_userinfo_claims_none_and_omitted_inherit_claims(userinfo_claims, released):
+    op, codec, _demo = _uc_op()
+    now = int(time.time())
+    rt = codec.seal_refresh_token(
+        tokens.RefreshTokenPayload(
+            client_id="demo",
+            sub="alice",
+            scope="openid email",
+            auth_time=now,
+            exp=now + 600,
+            claims={"email": "alice@example.com"},
+            **_uc_kwargs(userinfo_claims),
+        )
+    )
+    tr = op.handle_token_request(
+        list({"grant_type": "refresh_token", "refresh_token": rt}.items()),
+        TOKEN_URL,
+        auth_header=basic_auth("demo", "s3cret"),
+    )
+    ui = op.userinfo(tr.access_token)
+    if released:
+        assert ui == {"sub": "alice", "email": "alice@example.com"}
+    else:
+        assert ui == {"sub": "alice"}

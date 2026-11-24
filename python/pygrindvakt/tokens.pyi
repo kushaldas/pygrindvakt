@@ -61,7 +61,13 @@ class AuthCodePayload:
     @property
     def userinfo_claims(self) -> dict[str, Any] | None:
         """Claims for the UserInfo response. ``None`` means use ``claims``;
-        ``{}`` releases none."""
+        ``{}`` releases none.
+
+        Warning: ``None`` and omitting the constructor argument both release
+        the full ``claims`` map at UserInfo. Pass ``{}`` to release no
+        application claims; never forward a possibly-``None`` value meaning
+        "none".
+        """
     def __repr__(self) -> str: ...
 
 class AccessTokenPayload:
@@ -136,7 +142,13 @@ class RefreshTokenPayload:
     @property
     def userinfo_claims(self) -> dict[str, Any] | None:
         """Claims for the UserInfo response. ``None`` means use ``claims``;
-        ``{}`` releases none."""
+        ``{}`` releases none.
+
+        Warning: ``None`` and omitting the constructor argument both release
+        the full ``claims`` map at UserInfo. Pass ``{}`` to release no
+        application claims; never forward a possibly-``None`` value meaning
+        "none".
+        """
     def __repr__(self) -> str: ...
 
 class TokenCodec:

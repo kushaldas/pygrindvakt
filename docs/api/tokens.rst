@@ -140,6 +140,14 @@ userinfo response.
       ``claims`` for both destinations; ``{}`` releases no claims there.
       ``None`` and ``{}`` are kept distinct.
 
+      .. warning::
+
+         ``None`` and omitting the argument are identical: both release the
+         full ``claims`` map at the UserInfo endpoint. To release no
+         application claims there, pass ``{}``. Never forward a value that may
+         be ``None`` when you mean "none"; that silently over-releases
+         per-attribute personal data.
+
       .. versionadded:: 0.6.0
 
    Authorization codes are bound to the client registration fingerprint: if
@@ -209,6 +217,14 @@ userinfo response.
       Claims destined for the UserInfo response. ``None`` means use
       ``claims`` for both destinations (always the case for 0.5.x tokens);
       ``{}`` releases none.
+
+      .. warning::
+
+         ``None`` and omitting the argument are identical: both release the
+         full ``claims`` map at the UserInfo endpoint. To release no
+         application claims there, pass ``{}``. Never forward a value that may
+         be ``None`` when you mean "none"; that silently over-releases
+         per-attribute personal data.
 
       .. versionadded:: 0.6.0
 
