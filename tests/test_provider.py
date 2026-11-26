@@ -1624,3 +1624,20 @@ def test_consume_request_id_rejects_past_expiry(op):
     with pytest.raises(OAuthError) as exc:
         op.consume_request_id("demo", "jti-old", int(time.time()) - 1)
     assert exc.value.code == "invalid_request"
+
+
+def test_consume_request_id_refuses_far_future_expiry_without_consuming(op):
+    year_2100 = 4_102_444_800
+    with pytest.raises(OAuthError) as exc:
+        op.consume_request_id("demo", "jti-far", year_2100)
+    assert exc.value.code == "invalid_request"
+    assert "900" in (exc.value.description or "")
+    # Refusal wrote no marker: the same jti still works with a valid expiry.
+    assert op.consume_request_id("demo", "jti-far", int(time.time()) + 300) is None
+
+
+def test_consume_request_id_expiry_bound(op):
+    assert op.consume_request_id("demo", "jti-edge", int(time.time()) + 899) is None
+    with pytest.raises(OAuthError) as exc:
+        op.consume_request_id("demo", "jti-over", int(time.time()) + 903)
+    assert exc.value.code == "invalid_request"

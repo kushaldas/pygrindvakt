@@ -33,6 +33,11 @@ use crate::metadata::ProviderMetadata;
 use crate::request::AuthorizationRequest;
 use crate::tokens::TokenCodec;
 
+/// Longest request-object lifetime `consume_request_id` accepts, in seconds.
+/// Core keeps the replay marker until `expiry` with no clamp, so a far-future
+/// `expiry` would pin a permanent entry in the shared token-use store.
+const REQUEST_ID_MAX_TTL: u64 = 900;
+
 const RESERVED_ID_TOKEN_CLAIMS: &[&str] = &[
     "iss",
     "sub",
@@ -750,8 +755,9 @@ impl Provider {
     /// Call after verifying the request object's signature and binding it to
     /// the client. `expiry` is the acceptance deadline in Unix seconds. Returns
     /// `None`; raises `OAuthError`: `invalid_request` for an empty or
-    /// over-512-byte `jti` or an `expiry` not in the future, `invalid_grant`
-    /// on reuse, `server_error` on store failure. Replicas need a shared
+    /// over-512-byte `jti`, an `expiry` not in the future or more than 900 s
+    /// ahead (refused, nothing recorded), `invalid_grant` on reuse,
+    /// `server_error` on store failure. Replicas need a shared
     /// `token_use_store`.
     fn consume_request_id(
         &self,
@@ -760,6 +766,20 @@ impl Provider {
         jti: String,
         expiry: u64,
     ) -> PyResult<()> {
+        if expiry > grindvakt::util::now_secs().saturating_add(REQUEST_ID_MAX_TTL) {
+            return Err(
+                match build_oauth_error(
+                    "invalid_request",
+                    Some(format!(
+                        "request object expires more than {REQUEST_ID_MAX_TTL} s ahead"
+                    )),
+                    None,
+                ) {
+                    Ok(e) => oauth_err(py, &e),
+                    Err(e) => e,
+                },
+            );
+        }
         let p = self.inner.clone();
         let r = crate::runtime::block_on(py, async move {
             p.consume_request_id(&client_id, &jti, expiry).await

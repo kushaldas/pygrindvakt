@@ -258,8 +258,12 @@ class Provider:
         """Record a verified request object ``jti`` for one-time use by
         ``client_id``; ``expiry`` is the acceptance deadline in Unix seconds.
         Raises ``OAuthError``: ``invalid_request`` for an empty or over-512-byte
-        ``jti`` or a past ``expiry``, ``invalid_grant`` on reuse,
-        ``server_error`` on store failure."""
+        ``jti``, a past ``expiry`` or one more than 900 s ahead,
+        ``invalid_grant`` on reuse, ``server_error`` on store failure.
+        ``expiry`` is bounded to now + 900 s because the replay marker lives in
+        the shared ``token_use_store`` until then; longer-lived request objects
+        are refused (nothing recorded). Reject request objects whose ``exp``
+        exceeds that bound yourself as well."""
     def authenticate_client(
         self,
         form: list[tuple[str, str]],

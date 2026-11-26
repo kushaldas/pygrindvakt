@@ -36,8 +36,9 @@ adopting a change made in `grindvakt` / `jose-rs` and surfacing it to Python.
   keep their JSON types. `rp.begin` is unchanged.
 - `Provider.consume_request_id(client_id, jti, expiry)`: OP-side one-time use
   of a verified request object `jti`. Raises `OAuthError` `invalid_request`
-  (empty or over-512-byte `jti`, past `expiry`) or `invalid_grant` (replay).
-  Use a shared `token_use_store` across replicas.
+  (empty or over-512-byte `jti`, past `expiry`, or `expiry` more than 900 s
+  ahead, which is refused without recording anything) or `invalid_grant`
+  (replay). Use a shared `token_use_store` across replicas.
 
 ### Security
 

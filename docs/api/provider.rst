@@ -294,10 +294,17 @@ Provider
 
       Returns ``None``. Raises :class:`pygrindvakt.OAuthError`:
       ``invalid_request`` for an empty or over-512-byte ``jti`` or an
-      ``expiry`` that is not in the future, ``invalid_grant`` on reuse,
-      ``server_error`` on store failure. Replay state lives in the
-      provider's ``token_use_store``; replicas need a shared one (for
-      example :class:`RedisStore`) to enforce single use across processes.
+      ``expiry`` that is not in the future or is more than 900 seconds
+      ahead, ``invalid_grant`` on reuse, ``server_error`` on store failure.
+      Replay state lives in the provider's ``token_use_store``; replicas need
+      a shared one (for example :class:`RedisStore`) to enforce single use
+      across processes.
+
+      The marker is kept until ``expiry``, so the binding refuses an
+      ``expiry`` beyond now + 900 s (nothing is recorded): otherwise a
+      client could fill the shared store with permanent entries. Request
+      objects with a longer lifetime are refused, and the integrator should
+      reject request objects whose ``exp`` exceeds that bound anyway.
 
       .. versionadded:: 0.7.0
 
