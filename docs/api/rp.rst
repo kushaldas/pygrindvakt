@@ -269,6 +269,11 @@ Starting the flow
    :class:`ValueError` (RFC 9101 section 3; an OP's precedence between two
    request objects is undefined). Build ``extra`` from configuration only.
    Without a request object these are ordinary parameters and stay allowed.
+   The same names in the query of the provider's ``authorization_endpoint``
+   are refused with :class:`pygrindvakt.ConfigError` when a request object is
+   attached (``extra`` holds ``request`` or ``request_uri``): move them into
+   the signed request object and remove them from the endpoint. Other
+   endpoint query pairs are not checked and stay the caller's responsibility.
    Matching is exact and case-sensitive, and covers only the parameters this
    binding signs: ``claims_locales``, ``login_hint``, ``id_token_hint`` and
    ``display`` are not checked, so keep them out of the unsigned query
@@ -318,6 +323,12 @@ Starting the flow
    ``prompt``, ``ui_locales``, ``acr_values``, ``max_age``, ``signRequest`` or
    ``https://id.oidc.se/param/signRequest``; ``ValueError`` names the keys
    (this includes a key that duplicates one of the keyword arguments above).
+   An ``authorization_endpoint`` whose own query carries one of these names
+   is refused with :class:`pygrindvakt.ConfigError` naming the keys, since it
+   would re-send an unsigned copy of a signed parameter; move them into the
+   signed request object. Other endpoint query pairs (for example
+   ``tenant=a``) are kept and not checked: they are the caller's
+   responsibility. Without a request object the endpoint is used as is.
    The list is exact and case-sensitive and covers only the parameters this
    binding signs: ``claims_locales``, ``login_hint``, ``id_token_hint`` and
    ``display`` are not checked, so keep them out of the unsigned query

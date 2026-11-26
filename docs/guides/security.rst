@@ -526,6 +526,15 @@ Each is named so it stands out in a code review.
    key set to fetch, which authority to ask). Never make a decision on their
    output.
 
+Endpoint query pairs that are not JAR-only names
+   With a request object (``request_object_key``, or ``request`` /
+   ``request_uri`` in ``extra``), a provider ``authorization_endpoint`` whose
+   own query names ``claims``, ``prompt``, ``ui_locales``, ``acr_values``,
+   ``max_age`` or ``signRequest`` is refused with ``ConfigError``, because it
+   would re-send an unsigned copy of a signed parameter. Any other endpoint
+   pair (``claims_locales``, ``login_hint``, a tenant selector) is passed
+   through unchecked: keep security-relevant values out of the endpoint URL.
+
 Python protocol adapters
    A ``ClientStore``, ``TokenUseStore``, ``ReplayStore`` or ``HttpClient``
    you write yourself is inside the trust boundary. The binding guarantees

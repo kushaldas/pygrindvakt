@@ -217,7 +217,9 @@ def signed_request_object(
     weaker value. ``authorization_url`` and ``begin`` refuse these parameters in
     ``extra`` when a request object is attached, and refuse a second request
     object (``request`` and ``request_uri`` together, or either with
-    ``request_object_key``) (``ValueError``); ``begin`` with
+    ``request_object_key``) (``ValueError``). An endpoint query pair named
+    like one of those parameters is refused with ``ConfigError``; other
+    endpoint pairs are not checked. ``begin`` with
     these arguments and ``request_object_key`` sends the minimal query.
     ``sign_request`` is attacker-influenced data for an OP that renders it; the
     OP must cap its size.
@@ -284,7 +286,11 @@ def begin(
     is exact and case-sensitive and covers only the parameters this binding
     signs: ``claims_locales``, ``login_hint``, ``id_token_hint`` and
     ``display`` are not checked, so keep them out of the unsigned query
-    yourself if you signed them.
+    yourself if you signed them. A provider ``authorization_endpoint`` whose
+    own query carries one of those names is refused with ``ConfigError`` in
+    the same situation (it would re-send an unsigned copy); move them into the
+    signed object. Other endpoint query pairs are kept and are the caller's
+    responsibility.
 
     .. versionchanged:: 0.7.0
        Added ``claims``, ``prompt``, ``ui_locales``, ``acr_values``,

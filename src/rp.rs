@@ -755,6 +755,32 @@ fn reject_unsigned_jar_copies(extra: &[(String, String)], has_request_key: bool)
     reject_jar_only_keys(extra)
 }
 
+/// Fail closed when the provider's own authorization endpoint query carries a
+/// JAR-only name and a request object is attached: the pair would re-inject an
+/// unsigned copy of a signed parameter (RFC 9101 section 3).
+fn reject_endpoint_jar_keys(endpoint: &str) -> PyResult<()> {
+    let Some((_, query)) = endpoint.split_once('?') else {
+        return Ok(());
+    };
+    let query = query.split('#').next().unwrap_or("");
+    let mut bad: Vec<String> = Vec::new();
+    for (k, _) in url::form_urlencoded::parse(query.as_bytes()) {
+        if JAR_ONLY_KEYS.contains(&k.as_ref()) && !bad.iter().any(|b| b == k.as_ref()) {
+            bad.push(k.into_owned());
+        }
+    }
+    if bad.is_empty() {
+        return Ok(());
+    }
+    Err(config_err(format!(
+        "authorization_endpoint query must not carry {} when a request object \
+         is used: it would send an unsigned copy of a signed parameter. Move \
+         them into the signed request object and remove them from \
+         authorization_endpoint (RFC 9101 section 3)",
+        bad.join(", ")
+    )))
+}
+
 fn reject_jar_only_keys(extra: &[(String, String)]) -> PyResult<()> {
     let mut bad: Vec<&str> = Vec::new();
     for (k, _) in extra {
@@ -820,7 +846,9 @@ fn effective_client(client: &RpClient, redirect_uri: Option<String>) -> PyResult
 /// When `extra` carries `request` or `request_uri`, it must not also carry
 /// `claims`, `prompt`, `ui_locales`, `acr_values`, `max_age`, `signRequest`
 /// or `https://id.oidc.se/param/signRequest` (`ValueError`, RFC 9101
-/// section 3): put them in the signed request object only.
+/// section 3): put them in the signed request object only. An authorization
+/// endpoint whose own query carries one of those names is refused with
+/// `ConfigError` in that case.
 #[pyfunction]
 #[pyo3(signature = (provider, client, state, nonce, code_challenge = None, extra = None, *, redirect_uri = None))]
 fn authorization_url(
@@ -835,6 +863,9 @@ fn authorization_url(
     let client = effective_client(client, redirect_uri)?;
     let extra = extra_params(extra)?;
     reject_unsigned_jar_copies(&extra, false)?;
+    if extra_has_request_object(&extra) {
+        reject_endpoint_jar_keys(&provider.inner.authorization_endpoint)?;
+    }
     let extra_refs: Vec<(&str, &str)> = extra
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
@@ -932,7 +963,9 @@ fn signed_request_object(
 /// authorization URL (RFC 9101 section 3), keeping everything else verbatim.
 ///
 /// `endpoint` is the provider's authorization endpoint: its own query pairs
-/// come first in `url` and are kept even when named like a signed parameter.
+/// come first in `url` and are kept verbatim. `begin` has already refused an
+/// endpoint query named like a JAR-only parameter (`reject_endpoint_jar_keys`),
+/// so a kept pair can never collide with a name signed into the request object.
 fn minimal_jar_query(url: &str, endpoint: &str) -> String {
     const SIGNED: &[&str] = &[
         "redirect_uri",
@@ -989,6 +1022,8 @@ fn minimal_jar_query(url: &str, endpoint: &str) -> String {
 /// With a request object attached, `extra` must not carry any of those
 /// parameters (or `signRequest`, `https://id.oidc.se/param/signRequest`):
 /// `ValueError`, since the unsigned copy could override the signed one.
+/// An authorization endpoint whose own query carries one of those names is
+/// refused with `ConfigError` in the same situation.
 #[pyfunction]
 #[pyo3(signature = (provider, client, *, extra = None, redirect_uri = None, pkce = true, request_object_key = None, claims = None, prompt = None, ui_locales = None, acr_values = None, max_age = None, sign_request = None))]
 #[allow(clippy::too_many_arguments)]
@@ -1035,6 +1070,9 @@ fn begin<'py>(
     }
     let mut extra = extra_params(extra)?;
     reject_unsigned_jar_copies(&extra, request_object_key.is_some())?;
+    if request_object_key.is_some() || extra_has_request_object(&extra) {
+        reject_endpoint_jar_keys(&provider.inner.authorization_endpoint)?;
+    }
     let state = grindvakt::util::random_token(32);
     let nonce = grindvakt::util::random_token(32);
     let verifier = pkce.then(|| grindvakt::util::random_token(48));

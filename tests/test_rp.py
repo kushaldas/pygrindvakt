@@ -4227,3 +4227,47 @@ def test_begin_endpoint_with_library_param_refused_by_core(rpc, rp_key, name):
     with pytest.raises(ConfigError, match="library-controlled"):
         p = rp.ProviderInfo(ISSUER, f"{ISSUER}/authorize?{name}=x", f"{ISSUER}/token")
         rp.begin(p, rpc, request_object_key=rp_key, prompt="login")
+
+
+@pytest.mark.parametrize("key", _JAR_KEYS)
+def test_begin_endpoint_with_jar_only_key_refused(rpc, rp_key, key):
+    from urllib.parse import quote
+
+    p = rp.ProviderInfo(ISSUER, f"{ISSUER}/authorize?{quote(key, safe='')}=x", f"{ISSUER}/token")
+    with pytest.raises(ConfigError, match="authorization_endpoint") as ei:
+        rp.begin(p, rpc, request_object_key=rp_key)
+    assert key in str(ei.value)
+
+
+def test_begin_endpoint_poc_names_both_keys(rpc, rp_key):
+    p = rp.ProviderInfo(ISSUER, f"{ISSUER}/authorize?prompt=none&acr_values=loa1", f"{ISSUER}/token")
+    with pytest.raises(ConfigError) as ei:
+        rp.begin(p, rpc, request_object_key=rp_key, prompt="login", acr_values="urn:loa3")
+    assert "prompt" in str(ei.value) and "acr_values" in str(ei.value)
+
+
+@pytest.mark.parametrize("key", _JAR_KEYS)
+def test_begin_endpoint_with_jar_only_key_refused_for_extra_request(rpc, key):
+    from urllib.parse import quote
+
+    p = rp.ProviderInfo(ISSUER, f"{ISSUER}/authorize?{quote(key, safe='')}=x", f"{ISSUER}/token")
+    with pytest.raises(ConfigError, match="authorization_endpoint"):
+        rp.begin(p, rpc, extra={"request": "a.b.c"})
+
+
+@pytest.mark.parametrize("key", _JAR_KEYS)
+def test_authorization_url_endpoint_with_jar_only_key_refused_with_request(rpc, key):
+    from urllib.parse import quote
+
+    p = rp.ProviderInfo(ISSUER, f"{ISSUER}/authorize?{quote(key, safe='')}=x", f"{ISSUER}/token")
+    for extra in ({"request": "a.b.c"}, {"request_uri": "urn:x:1"}):
+        with pytest.raises(ConfigError, match="authorization_endpoint"):
+            rp.authorization_url(p, rpc, "s", "n", extra=extra)
+
+
+def test_endpoint_with_jar_only_key_accepted_without_request_object(rpc):
+    p = rp.ProviderInfo(ISSUER, f"{ISSUER}/authorize?prompt=none&acr_values=loa1", f"{ISSUER}/token")
+    q = parse_qs(urlsplit(rp.begin(p, rpc).url).query)
+    assert q["prompt"] == ["none"] and q["acr_values"] == ["loa1"]
+    q = parse_qs(urlsplit(rp.authorization_url(p, rpc, "s", "n")).query)
+    assert q["prompt"] == ["none"] and q["acr_values"] == ["loa1"]

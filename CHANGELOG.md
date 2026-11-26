@@ -59,7 +59,10 @@ adopting a change made in `grindvakt` / `jose-rs` and surfacing it to Python.
   raise `ValueError` for a second request object: `extra` holding both
   `request` and `request_uri`, or either of them together with
   `request_object_key` (RFC 9101 section 3, RFC 9126 section 3). Without a
-  request object `extra` is unchanged.
+  request object `extra` is unchanged. Both also raise `ConfigError` when the
+  provider's `authorization_endpoint` query carries one of those names while a
+  request object is attached, since the endpoint pair would re-send an
+  unsigned copy of a signed parameter; other endpoint pairs are kept as is.
 
 - Trust marks can now be verified. Pass the keys of the trust mark issuer
   (the trust anchor only if it issues the mark itself). `exp` is optional in
