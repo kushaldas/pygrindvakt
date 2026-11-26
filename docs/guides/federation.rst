@@ -51,7 +51,7 @@ that vouch for it) and its metadata per entity type.
                    "redirect_uris": [f"{ENTITY_ID}/callback"],
                    "jwks": RP_CLIENT_KEY.to_public_jwks(),      # the private_key_jwt key
                    "token_endpoint_auth_method": "private_key_jwt",
-                   "subject_type": "pairwise",  # RP-side preference; an OP using pygrindvakt must refuse it (public only)
+                   "subject_type": "public",
                },
                "federation_entity": {"organization_name": "Example Org"},
            },

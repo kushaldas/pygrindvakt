@@ -4169,3 +4169,34 @@ def test_begin_request_uri_extra_refuses_keys(prov, rpc):
 def test_begin_unrelated_extra_with_request_object_ok(prov, rpc, rp_key):
     _, q, _ = _begin_jar(prov, rpc, rp_key, extra={"ui_hint": "x"})
     assert q["ui_hint"] == ["x"]
+
+
+@pytest.mark.parametrize("key", _JAR_KEYS)
+def test_begin_refuses_extra_request_with_jar_key(prov, rpc, key):
+    with pytest.raises(ValueError, match="RFC 9101") as ei:
+        rp.begin(prov, rpc, extra={"request": "jar", key: "0"})
+    assert key in str(ei.value)
+
+
+@pytest.mark.parametrize("key", _JAR_KEYS)
+def test_begin_accepts_jar_key_without_request_marker(prov, rpc, key):
+    res = rp.begin(prov, rpc, extra={"x": "1", key: "0"})
+    assert parse_qs(urlsplit(res.url).query)[key] == ["0"]
+
+
+@pytest.mark.parametrize("endpoint", [f"{ISSUER}/authorize?foo=1", f"{ISSUER}/authorize?tenant=a&foo=1&bar=%20x"])
+def test_begin_trimmed_query_keeps_endpoint_pairs(rpc, rp_key, endpoint):
+    p = rp.ProviderInfo(ISSUER, endpoint, f"{ISSUER}/token")
+    res = rp.begin(p, rpc, request_object_key=rp_key, prompt="login")
+    query = urlsplit(res.url).query
+    own = endpoint.split("?", 1)[1]
+    assert query.startswith(own + "&")
+    pairs = [kv.split("=")[0] for kv in query[len(own) + 1 :].split("&")]
+    assert sorted(pairs) == ["client_id", "request", "response_type"]
+
+
+@pytest.mark.parametrize("name", ["scope", "state", "nonce", "redirect_uri"])
+def test_begin_endpoint_with_library_param_refused_by_core(rpc, rp_key, name):
+    with pytest.raises(ConfigError, match="library-controlled"):
+        p = rp.ProviderInfo(ISSUER, f"{ISSUER}/authorize?{name}=x", f"{ISSUER}/token")
+        rp.begin(p, rpc, request_object_key=rp_key, prompt="login")

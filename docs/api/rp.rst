@@ -266,7 +266,10 @@ Starting the flow
    offending keys. An OP could apply the unsigned query copy instead of the
    signed one (RFC 9101 section 3); put them in the request object only.
    Without a request object these are ordinary parameters and stay allowed.
-   Matching is exact and case-sensitive.
+   Matching is exact and case-sensitive, and covers only the parameters this
+   binding signs: ``claims_locales``, ``login_hint``, ``id_token_hint`` and
+   ``display`` are not checked, so keep them out of the unsigned query
+   yourself if you signed them.
 
    ``redirect_uri`` overrides the client's configured value for this call
    only. It must be an absolute URL without a fragment, else
@@ -302,11 +305,15 @@ Starting the flow
    and the challenge move into the signed object). Without these arguments the
    query is unchanged. This is the safe one-call path.
 
-   With a request object attached (``request_object_key``, or ``request_uri``
-   in ``extra``), ``extra`` must not contain ``claims``, ``prompt``,
-   ``ui_locales``, ``acr_values``, ``max_age``, ``signRequest`` or
+   With a request object attached (``request_object_key``, or ``request`` /
+   ``request_uri`` in ``extra``), ``extra`` must not contain ``claims``,
+   ``prompt``, ``ui_locales``, ``acr_values``, ``max_age``, ``signRequest`` or
    ``https://id.oidc.se/param/signRequest``; ``ValueError`` names the keys
    (this includes a key that duplicates one of the keyword arguments above).
+   The list is exact and case-sensitive and covers only the parameters this
+   binding signs: ``claims_locales``, ``login_hint``, ``id_token_hint`` and
+   ``display`` are not checked, so keep them out of the unsigned query
+   yourself if you signed them.
 
    .. versionchanged:: 0.7.0
       Added ``claims``, ``prompt``, ``ui_locales``, ``acr_values``,

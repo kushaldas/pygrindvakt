@@ -273,12 +273,16 @@ def begin(
     signed object. Without them the query is unchanged (full plain query plus
     ``request``).
 
-    With a request object attached (``request_object_key``, or ``request_uri``
-    in ``extra``), ``extra`` must not contain ``claims``, ``prompt``,
-    ``ui_locales``, ``acr_values``, ``max_age``, ``signRequest`` or
-    ``https://id.oidc.se/param/signRequest``: ``ValueError`` naming the keys,
-    because an OP could apply the unsigned copy (RFC 9101 section 3). Put them
-    in the signed object only.
+    With a request object attached (``request_object_key``, or
+    ``request`` / ``request_uri`` in ``extra``), ``extra`` must not contain
+    ``claims``, ``prompt``, ``ui_locales``, ``acr_values``, ``max_age``,
+    ``signRequest`` or ``https://id.oidc.se/param/signRequest``:
+    ``ValueError`` naming the keys, because an OP could apply the unsigned
+    copy (RFC 9101 section 3). Put them in the signed object only. The list
+    is exact and case-sensitive and covers only the parameters this binding
+    signs: ``claims_locales``, ``login_hint``, ``id_token_hint`` and
+    ``display`` are not checked, so keep them out of the unsigned query
+    yourself if you signed them.
 
     .. versionchanged:: 0.7.0
        Added ``claims``, ``prompt``, ``ui_locales``, ``acr_values``,

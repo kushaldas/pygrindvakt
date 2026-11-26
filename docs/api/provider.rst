@@ -312,7 +312,10 @@ Provider
       ``expiry`` beyond now + 900 s (nothing is recorded): otherwise a
       client could fill the shared store with permanent entries. Request
       objects with a longer lifetime are refused, and the integrator should
-      reject request objects whose ``exp`` exceeds that bound anyway.
+      reject request objects whose ``exp`` exceeds that bound anyway. Pass
+      the request object's own ``exp``, not ``exp`` plus clock-skew leeway: a
+      request object valid for exactly 900 s ahead plus leeway would be
+      refused.
 
       .. versionadded:: 0.7.0
 

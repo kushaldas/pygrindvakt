@@ -51,8 +51,8 @@ adopting a change made in `grindvakt` / `jose-rs` and surfacing it to Python.
 ### Security
 
 - `rp.authorization_url` and `rp.begin` raise `ValueError` when a request
-  object is attached (`request` or `request_uri` in `extra`, or
-  `request_object_key`) and `extra` also holds `claims`, `prompt`,
+  object is attached (`request` or `request_uri` in `extra`, which counts for
+  `begin` too, or `request_object_key`) and `extra` also holds `claims`, `prompt`,
   `ui_locales`, `acr_values`, `max_age`, `signRequest` or
   `https://id.oidc.se/param/signRequest`. An OP could otherwise apply the
   unsigned copy instead of the signed one (RFC 9101 section 3). Without a

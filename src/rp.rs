@@ -724,8 +724,25 @@ const JAR_ONLY_KEYS: &[&str] = &[
     "https://id.oidc.se/param/signRequest",
 ];
 
-/// RFC 9101 section 3: refuse unsigned copies of request-object parameters.
-fn reject_unsigned_jar_copies(extra: &[(String, String)]) -> PyResult<()> {
+/// True when `extra` itself carries a request object (`request` or
+/// `request_uri`). `begin` additionally counts a `request_object_key`.
+fn extra_has_request_object(extra: &[(String, String)]) -> bool {
+    extra
+        .iter()
+        .any(|(k, _)| k == "request" || k == "request_uri")
+}
+
+/// RFC 9101 section 3: refuse unsigned copies of request-object parameters
+/// when a request object is attached (`has_request_key` is true for a
+/// `request_object_key`, or `extra` holds `request` / `request_uri`).
+fn reject_unsigned_jar_copies(extra: &[(String, String)], has_request_key: bool) -> PyResult<()> {
+    if !has_request_key && !extra_has_request_object(extra) {
+        return Ok(());
+    }
+    reject_jar_only_keys(extra)
+}
+
+fn reject_jar_only_keys(extra: &[(String, String)]) -> PyResult<()> {
     let mut bad: Vec<&str> = Vec::new();
     for (k, _) in extra {
         if JAR_ONLY_KEYS.contains(&k.as_str()) && !bad.contains(&k.as_str()) {
@@ -804,12 +821,7 @@ fn authorization_url(
 ) -> PyResult<String> {
     let client = effective_client(client, redirect_uri)?;
     let extra = extra_params(extra)?;
-    if extra
-        .iter()
-        .any(|(k, _)| k == "request" || k == "request_uri")
-    {
-        reject_unsigned_jar_copies(&extra)?;
-    }
+    reject_unsigned_jar_copies(&extra, false)?;
     let extra_refs: Vec<(&str, &str)> = extra
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
@@ -905,7 +917,10 @@ fn signed_request_object(
 
 /// Drop the parameters that live inside the signed request object from an
 /// authorization URL (RFC 9101 section 3), keeping everything else verbatim.
-fn minimal_jar_query(url: &str) -> String {
+///
+/// `endpoint` is the provider's authorization endpoint: its own query pairs
+/// come first in `url` and are kept even when named like a signed parameter.
+fn minimal_jar_query(url: &str, endpoint: &str) -> String {
     const SIGNED: &[&str] = &[
         "redirect_uri",
         "scope",
@@ -917,9 +932,21 @@ fn minimal_jar_query(url: &str) -> String {
     let Some((base, query)) = url.split_once('?') else {
         return url.to_string();
     };
+    // Endpoint pairs are a prefix of the generated query: skip them.
+    let own = endpoint.split_once('?').map_or("", |(_, q)| q);
+    let own = own.split('#').next().unwrap_or("");
+    let n_own = if own.is_empty() {
+        0
+    } else if query == own || query.starts_with(&format!("{own}&")) {
+        own.split('&').count()
+    } else {
+        0
+    };
     let kept: Vec<&str> = query
         .split('&')
-        .filter(|pair| !SIGNED.contains(&pair.split('=').next().unwrap_or("")))
+        .enumerate()
+        .filter(|(i, pair)| *i < n_own || !SIGNED.contains(&pair.split('=').next().unwrap_or("")))
+        .map(|(_, pair)| pair)
         .collect();
     format!("{base}?{}", kept.join("&"))
 }
@@ -994,9 +1021,7 @@ fn begin<'py>(
         return Err(config_err("public clients must use S256 PKCE"));
     }
     let mut extra = extra_params(extra)?;
-    if request_object_key.is_some() || extra.iter().any(|(k, _)| k == "request_uri") {
-        reject_unsigned_jar_copies(&extra)?;
-    }
+    reject_unsigned_jar_copies(&extra, request_object_key.is_some())?;
     let state = grindvakt::util::random_token(32);
     let nonce = grindvakt::util::random_token(32);
     let verifier = pkce.then(|| grindvakt::util::random_token(48));
@@ -1028,7 +1053,7 @@ fn begin<'py>(
     )
     .map_err(err)?;
     let url = if has_jar_params {
-        minimal_jar_query(&url)
+        minimal_jar_query(&url, &provider.inner.authorization_endpoint)
     } else {
         url
     };

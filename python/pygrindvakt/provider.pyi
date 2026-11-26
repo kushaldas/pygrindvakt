@@ -265,7 +265,9 @@ class Provider:
         ``expiry`` is bounded to now + 900 s because the replay marker lives in
         the shared ``token_use_store`` until then; longer-lived request objects
         are refused (nothing recorded). Reject request objects whose ``exp``
-        exceeds that bound yourself as well."""
+        exceeds that bound yourself as well. Pass the request object's own
+        ``exp``, not ``exp`` plus clock-skew leeway: a request object valid
+        for exactly 900 s ahead plus leeway would be refused."""
     def authenticate_client(
         self,
         form: list[tuple[str, str]],
