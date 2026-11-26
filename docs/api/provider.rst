@@ -119,6 +119,10 @@ Provider
       The ``/.well-known/openid-configuration`` document as a dict. Serve it
       with ``Response.json(op.discovery_document())``.
 
+      It advertises ``subject_types_supported`` as ``["public"]`` only. The
+      binding does not support pairwise subjects, so do not add ``"pairwise"``
+      to your own metadata.
+
    .. py:method:: jwks_document() -> dict[str, Any]
 
       The JWKS document (``{"keys": [...]}``) as a dict: the public half of
@@ -202,6 +206,10 @@ Provider
 
       ``sub`` must be non-empty and the client's subject type must be
       ``public``; a pairwise client raises ``OAuthError(unauthorized_client)``.
+      This is defence in depth: the binding never enables pairwise subjects,
+      so core already refuses pairwise registrations at validation. Public
+      subject identifiers only; pairwise subject support is not provided by
+      this binding (see :doc:`../guides/security`).
       ``auth_time`` (Unix seconds) defaults to issuance time.
 
       .. versionadded:: 0.7.0

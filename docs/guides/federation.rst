@@ -51,7 +51,7 @@ that vouch for it) and its metadata per entity type.
                    "redirect_uris": [f"{ENTITY_ID}/callback"],
                    "jwks": RP_CLIENT_KEY.to_public_jwks(),      # the private_key_jwt key
                    "token_endpoint_auth_method": "private_key_jwt",
-                   "subject_type": "pairwise",
+                   "subject_type": "pairwise",  # RP-side preference; an OP using pygrindvakt must refuse it (public only)
                },
                "federation_entity": {"organization_name": "Example Org"},
            },
@@ -249,7 +249,9 @@ federation front end implements in Rust; in Python it is a few lines around
            token_endpoint_auth_method=client.AUTH_PRIVATE_KEY_JWT,
            jwks=rp_meta.get("jwks"),
            scope=rp_meta.get("scope"),
-           subject_type=rp_meta.get("subject_type", "pairwise"),
+           # Public only: the binding has no pairwise support and Provider
+           # refuses pairwise clients. Default to "public", never "pairwise".
+           subject_type=rp_meta.get("subject_type", "public"),
            client_name=rp_meta.get("client_name"),
        )
        # Never trust the RP for longer than the trust anchor does.

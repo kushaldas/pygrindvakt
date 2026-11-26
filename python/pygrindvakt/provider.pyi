@@ -208,7 +208,9 @@ class Provider:
         code. Refresh keeps the split; if the client drops a previously granted
         scope at refresh, the matching standard claims are removed from both
         destinations. ``sub`` must be a public subject: pairwise clients raise
-        ``OAuthError(unauthorized_client)``. ``auth_time`` defaults to issuance
+        ``OAuthError(unauthorized_client)``. The binding has no pairwise
+        support; core refuses pairwise registrations at validation, so this
+        check is defence in depth. ``auth_time`` defaults to issuance
         time.
 
         .. versionadded:: 0.7.0

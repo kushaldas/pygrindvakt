@@ -96,6 +96,12 @@ Client
       :type: str | None
    .. py:property:: subject_type
       :type: str
+
+      ``"public"`` (the default) or ``"pairwise"``. The data model accepts
+      ``"pairwise"``, but Provider validation rejects it: the binding never
+      enables core's pairwise subjects, and no Provider method works with a
+      pairwise client. Use ``"public"``.
+
    .. py:property:: client_name
       :type: str | None
 

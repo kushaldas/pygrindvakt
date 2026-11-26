@@ -489,6 +489,20 @@ Input hardening the binding inherits from grindvakt
   without a fragment before a user is ever sent to them.
 
 
+Subject identifiers: public only
+--------------------------------
+
+The binding supports public subject identifiers only. It never enables
+core's pairwise subjects, so core refuses pairwise client registrations at
+validation, and the discovery document advertises
+``subject_types_supported: ["public"]``. No ``Provider`` method works with a
+client whose ``subject_type`` is ``"pairwise"``;
+``Provider.authorization_redirect_with_authorized_claims`` also refuses one
+with ``OAuthError(unauthorized_client)`` as defence in depth. Do not assume
+pairwise support when reading an RP's registration: if an RP asks for
+pairwise subjects, it cannot be served by this binding.
+
+
 Footguns the API leaves reachable (and why)
 -------------------------------------------
 

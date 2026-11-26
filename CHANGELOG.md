@@ -15,7 +15,9 @@ adopting a change made in `grindvakt` / `jose-rs` and surfacing it to Python.
   `Provider.authorization_redirect_with_authorized_claims(request, sub, claims,
   *, acr=None, auth_time=None)`: release different claims to the ID token and
   to UserInfo. No scope filter is applied; the code seals the registration
-  fingerprint and an explicit UserInfo claim set.
+  fingerprint and an explicit UserInfo claim set. Public subjects only: pairwise
+  clients are refused (`unauthorized_client`), because the binding has no
+  pairwise subject support.
 - `Provider.signed_userinfo(access_token, presented_jkt=None)`: UserInfo as a
   signed JWT (`typ` `userinfo+jwt`, `aud` = client id, `exp` capped at five
   minutes), or a JWE when the client registered
