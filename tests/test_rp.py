@@ -4178,6 +4178,33 @@ def test_begin_refuses_extra_request_with_jar_key(prov, rpc, key):
     assert key in str(ei.value)
 
 
+@pytest.mark.parametrize("ref", ["request", "request_uri"])
+def test_begin_request_object_key_refuses_second_request_object(prov, rpc, rp_key, ref):
+    with pytest.raises(ValueError, match="two request objects"):
+        rp.begin(prov, rpc, request_object_key=rp_key, prompt="login", extra={ref: "https://attacker.example/jar"})
+
+
+def test_authorization_url_refuses_request_and_request_uri(prov, rpc):
+    with pytest.raises(ValueError, match="both request and request_uri"):
+        rp.authorization_url(prov, rpc, "st", "n", extra={"request": "J1", "request_uri": "https://evil.example/jar"})
+
+
+def test_begin_refuses_request_and_request_uri_without_key(prov, rpc):
+    with pytest.raises(ValueError, match="both request and request_uri"):
+        rp.begin(prov, rpc, extra={"request": "J1", "request_uri": "https://evil.example/jar"})
+
+
+@pytest.mark.parametrize("ref", ["request", "request_uri"])
+def test_authorization_url_single_request_object_accepted(prov, rpc, ref):
+    url = rp.authorization_url(prov, rpc, "st", "n", extra={ref: "x"})
+    assert parse_qs(urlsplit(url).query)[ref] == ["x"]
+
+
+def test_begin_request_object_key_alone_unchanged(prov, rpc, rp_key):
+    _, q, _ = _begin_jar(prov, rpc, rp_key)
+    assert "request_uri" not in q and len(q["request"]) == 1
+
+
 @pytest.mark.parametrize("key", _JAR_KEYS)
 def test_begin_accepts_jar_key_without_request_marker(prov, rpc, key):
     res = rp.begin(prov, rpc, extra={"x": "1", key: "0"})

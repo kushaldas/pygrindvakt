@@ -594,6 +594,11 @@ Checklist for a production RP
    your public key.
 #. Keep the built-in HTTP client, or make sure your own never follows
    redirects, enforces timeouts and caps bodies.
+#. Build ``extra`` for ``authorization_url`` / ``begin`` from configuration
+   only, never from user-controlled input (query-string passthrough,
+   pickers). The library refuses repeated signed-JAR claims and a second
+   request object, but cannot know which other ``extra`` keys are
+   attacker-controlled.
 #. Treat ``AuthnError`` messages as log material.
 #. Do not set ``unsafe_skip_nonce_check`` or
    ``allow_unregistered_redirect_uri``; register the redirect URIs instead.

@@ -732,10 +732,23 @@ fn extra_has_request_object(extra: &[(String, String)]) -> bool {
         .any(|(k, _)| k == "request" || k == "request_uri")
 }
 
-/// RFC 9101 section 3: refuse unsigned copies of request-object parameters
-/// when a request object is attached (`has_request_key` is true for a
-/// `request_object_key`, or `extra` holds `request` / `request_uri`).
+/// RFC 9101 section 3 / RFC 9126 section 3: at most one request object per
+/// request, and no unsigned copies of signed parameters next to it.
+/// `has_request_key` is true when `begin` signs one from `request_object_key`.
 fn reject_unsigned_jar_copies(extra: &[(String, String)], has_request_key: bool) -> PyResult<()> {
+    let has_request = extra.iter().any(|(k, _)| k == "request");
+    let has_request_uri = extra.iter().any(|(k, _)| k == "request_uri");
+    if has_request_key && (has_request || has_request_uri) {
+        return Err(PyValueError::new_err(
+            "extra must not carry request/request_uri when request_object_key is set: \
+             two request objects in one request (RFC 9101 section 3)",
+        ));
+    }
+    if has_request && has_request_uri {
+        return Err(PyValueError::new_err(
+            "extra must not carry both request and request_uri (RFC 9101 section 3)",
+        ));
+    }
     if !has_request_key && !extra_has_request_object(extra) {
         return Ok(());
     }

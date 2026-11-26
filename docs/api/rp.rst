@@ -265,6 +265,9 @@ Starting the flow
    ``https://id.oidc.se/param/signRequest``: :class:`ValueError` names the
    offending keys. An OP could apply the unsigned query copy instead of the
    signed one (RFC 9101 section 3); put them in the request object only.
+   ``extra`` must not carry both ``request`` and ``request_uri``:
+   :class:`ValueError` (RFC 9101 section 3; an OP's precedence between two
+   request objects is undefined). Build ``extra`` from configuration only.
    Without a request object these are ordinary parameters and stay allowed.
    Matching is exact and case-sensitive, and covers only the parameters this
    binding signs: ``claims_locales``, ``login_hint``, ``id_token_hint`` and
@@ -304,6 +307,11 @@ Starting the flow
    authorization endpoint (``redirect_uri``, ``scope``, ``state``, ``nonce``
    and the challenge move into the signed object). Without these arguments the
    query is unchanged. This is the safe one-call path.
+
+   ``extra`` must not carry ``request`` or ``request_uri`` together with
+   ``request_object_key``, nor both ``request`` and ``request_uri``: these
+   would send two request objects (RFC 9101 section 3, RFC 9126 section 3)
+   and raise :class:`ValueError`.
 
    With a request object attached (``request_object_key``, or ``request`` /
    ``request_uri`` in ``extra``), ``extra`` must not contain ``claims``,

@@ -55,7 +55,10 @@ adopting a change made in `grindvakt` / `jose-rs` and surfacing it to Python.
   `begin` too, or `request_object_key`) and `extra` also holds `claims`, `prompt`,
   `ui_locales`, `acr_values`, `max_age`, `signRequest` or
   `https://id.oidc.se/param/signRequest`. An OP could otherwise apply the
-  unsigned copy instead of the signed one (RFC 9101 section 3). Without a
+  unsigned copy instead of the signed one (RFC 9101 section 3). They also
+  raise `ValueError` for a second request object: `extra` holding both
+  `request` and `request_uri`, or either of them together with
+  `request_object_key` (RFC 9101 section 3, RFC 9126 section 3). Without a
   request object `extra` is unchanged.
 
 - Trust marks can now be verified. Pass the keys of the trust mark issuer

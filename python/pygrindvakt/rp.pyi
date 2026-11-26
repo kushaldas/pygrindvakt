@@ -215,7 +215,9 @@ def signed_request_object(
     ``response_type`` and ``request``; do not repeat parameters that are inside
     the signed object, because an OP reading the unsigned copy would apply a
     weaker value. ``authorization_url`` and ``begin`` refuse these parameters in
-    ``extra`` when a request object is attached (``ValueError``); ``begin`` with
+    ``extra`` when a request object is attached, and refuse a second request
+    object (``request`` and ``request_uri`` together, or either with
+    ``request_object_key``) (``ValueError``); ``begin`` with
     these arguments and ``request_object_key`` sends the minimal query.
     ``sign_request`` is attacker-influenced data for an OP that renders it; the
     OP must cap its size.
