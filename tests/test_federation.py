@@ -1203,6 +1203,7 @@ def entry(token: str, type_: str = TM_TYPE) -> dict:
 
 def verify_marks(fed, marks, **kw):
     kw.setdefault("subject", LEAF)
+    kw.setdefault("issuer", TM_ISSUER)
     return federation.verify_trust_marks(marks, fed.ta_key.to_public_jwks(), TM_TYPE, **kw)
 
 
@@ -1238,6 +1239,22 @@ def test_verify_trust_marks_wrong_subject(fed):
 
 def test_verify_trust_marks_issuer_mismatch(fed):
     assert_invalid(fed, [entry(trust_mark(fed.ta_key))], issuer="https://else.example")
+
+
+def test_verify_trust_marks_issuer_required(fed):
+    with pytest.raises(TypeError):
+        federation.verify_trust_marks(
+            [entry(trust_mark(fed.ta_key))], fed.ta_key.to_public_jwks(), TM_TYPE, subject=LEAF
+        )
+
+
+def test_verify_trust_marks_self_signed_by_subject_rejected(fed):
+    """A mark with iss == sub == attacker, verified against the attacker's own keys, must not count."""
+    ent = make_key("attacker")
+    tok = trust_mark(ent, iss=LEAF, sub=LEAF)
+    with pytest.raises(pygrindvakt.AuthnError) as exc:
+        federation.verify_trust_marks([entry(tok)], ent.to_public_jwks(), TM_TYPE, subject=LEAF, issuer=TM_ISSUER)
+    assert exc.value.code == "trust_mark_invalid"
 
 
 def test_verify_trust_marks_issuer_match(fed):
@@ -1320,7 +1337,7 @@ def test_verify_trust_marks_entry_without_trust_mark(fed):
 def test_verify_trust_marks_oct_key_dropped(fed):
     jwks = {"keys": [OCT_KEY]}
     with pytest.warns(UserWarning, match=r"symmetric \(oct\) key"), pytest.raises(pygrindvakt.AuthnError) as exc:
-        federation.verify_trust_marks([entry(trust_mark(fed.ta_key))], jwks, TM_TYPE, subject=LEAF)
+        federation.verify_trust_marks([entry(trust_mark(fed.ta_key))], jwks, TM_TYPE, subject=LEAF, issuer=TM_ISSUER)
     assert exc.value.code == "trust_mark_invalid"
 
 
@@ -1331,9 +1348,10 @@ def test_verify_trust_marks_other_types_skipped(fed):
 
 
 def test_verify_trust_marks_multiple_valid_all_returned(fed):
-    marks = [entry(trust_mark(fed.ta_key, iss=f"https://i{n}.example")) for n in range(2)]
+    marks = [entry(trust_mark(fed.ta_key, jti=f"m{n}")) for n in range(2)]
     out = verify_marks(fed, marks)
-    assert [s.iss() for s in out] == ["https://i0.example", "https://i1.example"]
+    assert [s.claims["jti"] for s in out] == ["m0", "m1"]
+    assert {s.iss() for s in out} == {TM_ISSUER}
 
 
 def test_verify_trust_marks_one_bad_one_good(fed):

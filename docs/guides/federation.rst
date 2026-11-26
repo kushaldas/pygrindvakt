@@ -139,6 +139,13 @@ trust mark *issuer* (the trust anchor only if it issues the mark itself):
        issuer=MARK_ISSUER_ID,
    )
 
+.. warning::
+
+   ``issuer`` is required, and ``MARK_ISSUER_JWKS`` must be keys you verified
+   for that issuer. Never pass ``entity.subject_jwks``: the subject could then
+   self-sign a mark (``iss == sub``) that verifies. Pinning ``issuer`` makes
+   such a mark fail.
+
 It raises ``AuthnError`` (``trust_mark_missing`` / ``trust_mark_invalid``)
 unless at least one mark verifies. Marks without ``exp`` are rejected unless
 ``require_exp=False``.

@@ -378,17 +378,15 @@ fn verify_one_trust_mark(
     jwks: &JwkSet,
     required_type: &str,
     subject: &str,
-    issuer: Option<&str>,
+    issuer: &str,
     require_exp: bool,
 ) -> Result<EntityStatement, String> {
     // `iat` is REQUIRED in a trust mark (OpenID Federation 1.0 section 7.1).
     let mut validation = Validation::new()
         .with_typ(TRUST_MARK_TYP)
         .with_subject(subject)
+        .with_issuer(issuer)
         .require_iat();
-    if let Some(iss) = issuer {
-        validation = validation.with_issuer(iss);
-    }
     if require_exp {
         validation = validation.require_exp();
     }
@@ -416,14 +414,14 @@ fn verify_one_trust_mark(
 /// section 7). Core stores them raw; this verifies the ones of
 /// `required_type` against the trust mark ISSUER's keys.
 #[pyfunction]
-#[pyo3(signature = (marks, issuer_jwks, required_type, *, subject, issuer=None, require_exp=true))]
+#[pyo3(signature = (marks, issuer_jwks, required_type, *, subject, issuer, require_exp=true))]
 fn verify_trust_marks(
     py: Python<'_>,
     marks: &Bound<'_, PyAny>,
     issuer_jwks: &Bound<'_, PyAny>,
     required_type: &str,
     subject: &str,
-    issuer: Option<&str>,
+    issuer: &str,
     require_exp: bool,
 ) -> PyResult<Vec<EntityStatement>> {
     let marks: Vec<Value> = from_py(marks)?;

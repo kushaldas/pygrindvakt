@@ -22,8 +22,10 @@ adopting a change made in `grindvakt` / `jose-rs` and surfacing it to Python.
   `userinfo_encrypted_response_alg`. Serve it as `application/jwt`.
 
 - `federation.verify_trust_marks(marks, issuer_jwks, required_type, *, subject,
-  issuer=None, require_exp=True)` and `federation.TRUST_MARK_TYP`: verify
-  trust marks from `ResolvedEntity.trust_marks` (core stores them raw). Raises
+  issuer, require_exp=True)` and `federation.TRUST_MARK_TYP`: verify
+  trust marks from `ResolvedEntity.trust_marks` (core stores them raw).
+  `issuer` (keyword-only) is required: the trust mark issuer whose keys are
+  in `issuer_jwks`, so a mark self-signed by its subject is rejected. Raises
   `AuthnError` `trust_mark_missing` / `trust_mark_invalid`. Entries signed
   with `HS*` / `none` are skipped; `symmetric_algorithm` is raised only if no
   entry verified. `iat` is required (OpenID Federation 1.0 section 7.1).

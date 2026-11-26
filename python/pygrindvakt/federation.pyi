@@ -87,14 +87,17 @@ def verify_trust_marks(
     required_type: str,
     *,
     subject: str,
-    issuer: str | None = None,
+    issuer: str,
     require_exp: bool = True,
 ) -> list[EntityStatement]:
     """Verify the trust marks of ``required_type`` in ``marks`` (e.g. ``ResolvedEntity.trust_marks``).
 
-    ``issuer_jwks`` must be the verified keys of the trust MARK ISSUER (the trust
-    anchor only when it issues the mark itself). Each entry of the type must be a
-    ``trust-mark+jwt`` with ``sub == subject`` (and ``iss == issuer`` if given),
+    ``issuer`` is mandatory: the entity id of the trust mark issuer whose verified
+    keys are in ``issuer_jwks`` (the trust anchor only when it issues the mark
+    itself). Never pass the subject's own keys (e.g. ``ResolvedEntity.subject_jwks``):
+    a mark self-signed by its subject must not count, and pinning ``issuer``
+    rejects it. Each entry of the type must be a
+    ``trust-mark+jwt`` with ``sub == subject`` and ``iss == issuer``,
     inner ``trust_mark_type`` equal to ``required_type``, no ``delegation`` claim
     (fails closed), a present ``iat`` (required by OpenID Federation 1.0 section 7.1)
     and valid ``exp`` / ``nbf`` / ``iat``. ``require_exp=True``
