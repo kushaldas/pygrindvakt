@@ -96,12 +96,14 @@ def verify_trust_marks(
     anchor only when it issues the mark itself). Each entry of the type must be a
     ``trust-mark+jwt`` with ``sub == subject`` (and ``iss == issuer`` if given),
     inner ``trust_mark_type`` equal to ``required_type``, no ``delegation`` claim
-    (fails closed), and valid ``exp`` / ``nbf`` / ``iat``. ``require_exp=True``
+    (fails closed), a present ``iat`` (required by OpenID Federation 1.0 section 7.1)
+    and valid ``exp`` / ``nbf`` / ``iat``. ``require_exp=True``
     deliberately rejects marks without ``exp`` (optional in the spec).
     Returns every verified mark. Non-dict entries and other types are ignored.
 
     Raises ``AuthnError`` with ``code="trust_mark_missing"`` (no entry of the type),
-    ``"trust_mark_invalid"`` (none verified) or ``"symmetric_algorithm"`` (``HS*`` / ``none``).
+    ``"trust_mark_invalid"`` (none verified) or ``"symmetric_algorithm"`` (no entry verified and an entry
+    used ``HS*`` / ``none``; such entries are otherwise skipped).
     ``oct`` keys in ``issuer_jwks`` are dropped with a ``UserWarning``.
 
     .. versionadded:: 0.7.0

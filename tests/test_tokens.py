@@ -190,34 +190,40 @@ def _no_digest():
     }
 
 
-def test_auth_code_without_digest_warns_deprecation():
-    with pytest.warns(DeprecationWarning, match="registration_fingerprint") as rec:
+def test_auth_code_without_digest_warns_future():
+    with pytest.warns(FutureWarning, match="registration_fingerprint") as rec:
         tokens.AuthCodePayload(**_no_digest())
     assert len(rec) == 1
     assert rec[0].filename == __file__
     assert "authorization_redirect_with_authorized_claims" in str(rec[0].message)
-    with pytest.warns(DeprecationWarning):
+    with pytest.warns(FutureWarning):
         tokens.AuthCodePayload(**_no_digest(), registration_digest=None)
+
+
+def test_auth_code_raising_constructor_does_not_warn(recwarn):
+    with pytest.raises(TypeError):
+        tokens.AuthCodePayload(**_no_digest(), claims="not a dict")
+    assert not [w for w in recwarn if issubclass(w.category, FutureWarning)]
 
 
 def test_auth_code_with_digest_does_not_warn(recwarn):
     tokens.AuthCodePayload(**_no_digest(), registration_digest="dig")
-    assert not [w for w in recwarn if issubclass(w.category, DeprecationWarning)]
+    assert not [w for w in recwarn if issubclass(w.category, FutureWarning)]
 
 
 def test_opening_digestless_code_does_not_warn(recwarn):
     """Old (0.5.x-style) sealed codes carry no digest; decoding them is silent."""
     codec = tokens.TokenCodec("secret")
-    with pytest.warns(DeprecationWarning):
+    with pytest.warns(FutureWarning):
         legacy = tokens.AuthCodePayload(**_no_digest())
     sealed = codec.seal_code(legacy)
     recwarn.clear()
     opened = codec.open_code(sealed)
     tokens.AuthCodePayload.from_dict(opened.to_dict())
     assert opened.registration_digest is None
-    assert not [w for w in recwarn if issubclass(w.category, DeprecationWarning)]
+    assert not [w for w in recwarn if issubclass(w.category, FutureWarning)]
 
 
 def test_refresh_token_payload_has_no_digest_and_does_not_warn(recwarn):
     _refresh()
-    assert not [w for w in recwarn if issubclass(w.category, DeprecationWarning)]
+    assert not [w for w in recwarn if issubclass(w.category, FutureWarning)]

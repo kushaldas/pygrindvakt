@@ -329,14 +329,17 @@ Instance-level overrides:
   key.
 * ``symmetric_algorithm`` (``AuthnError``): a federation document passed to
   :func:`pygrindvakt.federation.verify`, ``verify_typed``,
-  ``verify_self_signed`` or ``verify_trust_marks`` has a header ``alg`` of ``HS256``, ``HS384``,
+  ``verify_self_signed`` has a header ``alg`` of ``HS256``, ``HS384``,
   ``HS512`` or ``none``. Entity statements are signed with asymmetric keys.
+  :func:`pygrindvakt.federation.verify_trust_marks` raises it only when no
+  entry verified and at least one entry used such an ``alg``; otherwise
+  those entries are skipped.
 * ``trust_mark_missing`` (``AuthnError``):
   :func:`pygrindvakt.federation.verify_trust_marks` found no entry of the
   required type.
 * ``trust_mark_invalid`` (``AuthnError``): entries of the required type
   exist but none verified (bad signature, ``typ``, ``sub``, ``iss``, lifetime,
-  type mismatch, ``delegation``, or no ``exp`` with ``require_exp``).
+  type mismatch, ``delegation``, no ``iat``, or no ``exp`` with ``require_exp``).
 * ``upstream_http`` (``InternalError``): a discovery, JWKS or federation
   fetch got a failing status. Always this value for such non-auth failures,
   even if the upstream sent an OAuth ``error`` (that stays in

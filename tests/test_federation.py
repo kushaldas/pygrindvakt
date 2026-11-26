@@ -17,6 +17,7 @@ The leaf's own ``.well-known`` and the TA's ``federation_fetch_endpoint`` are
 never contacted by the resolver.
 """
 
+import base64
 import json
 import time
 import warnings
@@ -1265,6 +1266,27 @@ def test_verify_trust_marks_missing_exp(fed):
 def test_verify_trust_marks_hs256_refused(fed):
     hs = keys.signing_key_from_jwk({"kty": "oct", "k": "c" * 43, "kid": "sym"}, alg="HS256", kid="sym")
     assert_invalid(fed, [entry(trust_mark(hs))], code="symmetric_algorithm")
+
+
+def test_verify_trust_marks_missing_iat(fed):
+    """OpenID Federation 1.0 section 7.1: ``iat`` is REQUIRED."""
+    assert_invalid(fed, [entry(trust_mark(fed.ta_key, iat=None))])
+
+
+@pytest.mark.parametrize("alg", ["HS256", "none"])
+@pytest.mark.parametrize("bad_first", [True, False])
+def test_verify_trust_marks_mac_entry_does_not_hide_valid_mark(fed, alg, bad_first):
+    good = entry(trust_mark(fed.ta_key))
+    if alg == "none":
+        hdr = base64.urlsafe_b64encode(b'{"alg":"none","typ":"trust-mark+jwt"}').rstrip(b"=").decode()
+        body = base64.urlsafe_b64encode(b"{}").rstrip(b"=").decode()
+        bad = entry(f"{hdr}.{body}.")
+    else:
+        hs = keys.signing_key_from_jwk({"kty": "oct", "k": "c" * 43, "kid": "sym"}, alg="HS256", kid="sym")
+        bad = entry(trust_mark(hs))
+    marks = [bad, good] if bad_first else [good, bad]
+    assert len(verify_marks(fed, marks)) == 1
+    assert_invalid(fed, [bad], code="symmetric_algorithm")
 
 
 def test_verify_trust_marks_inner_type_mismatch(fed):

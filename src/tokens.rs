@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use pyo3::exceptions::{PyDeprecationWarning, PyValueError};
+use pyo3::exceptions::{PyFutureWarning, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyModule;
 
@@ -68,12 +68,27 @@ impl AuthCodePayload {
         registration_digest: Option<String>,
         userinfo_claims: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
-        if registration_digest.is_none() {
+        let inner = gt::AuthCodePayload {
+            client_id,
+            redirect_uri,
+            scope,
+            sub,
+            nonce,
+            code_challenge,
+            code_challenge_method,
+            claims: claims_map(claims)?,
+            auth_time,
+            exp,
+            acr,
+            registration_digest,
+            userinfo_claims: opt_claims_map(userinfo_claims)?,
+        };
+        if inner.registration_digest.is_none() {
             // Only the Python constructor warns; codes opened by the codec and
             // from_dict build the Rust payload directly and stay silent.
             PyErr::warn(
                 py,
-                &py.get_type::<PyDeprecationWarning>(),
+                &py.get_type::<PyFutureWarning>(),
                 c"AuthCodePayload without registration_digest skips the client-registration \
                   binding check at the token endpoint, so a rotated secret or key does not \
                   invalidate outstanding codes; it will become required in a future release. \
@@ -82,23 +97,7 @@ impl AuthCodePayload {
                 STACKLEVEL,
             )?;
         }
-        Ok(Self {
-            inner: gt::AuthCodePayload {
-                client_id,
-                redirect_uri,
-                scope,
-                sub,
-                nonce,
-                code_challenge,
-                code_challenge_method,
-                claims: claims_map(claims)?,
-                auth_time,
-                exp,
-                acr,
-                registration_digest,
-                userinfo_claims: opt_claims_map(userinfo_claims)?,
-            },
-        })
+        Ok(Self { inner })
     }
     #[staticmethod]
     fn from_dict(d: &Bound<'_, PyAny>) -> PyResult<Self> {

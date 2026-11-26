@@ -252,9 +252,11 @@ Entity statements: build, decode, verify
    that are not dicts, are ignored. Each remaining entry's ``trust_mark`` JWT
    must have ``typ`` ``trust-mark+jwt``, ``sub == subject``, ``iss == issuer``
    (when given), a valid signature, valid ``exp`` / ``nbf`` / ``iat`` (60 s
-   leeway), an inner ``trust_mark_type`` equal to ``required_type`` and an
+   leeway; ``iat`` is required, OpenID Federation 1.0 section 7.1), an inner ``trust_mark_type`` equal to ``required_type`` and an
    ``iss``. A ``delegation`` claim fails closed (delegation owner keys are
-   not supported). Entries that fail are skipped.
+   not supported). Entries that fail are skipped, including entries whose
+   ``alg`` is ``HS*`` or ``none``; a valid mark is still returned alongside
+   them.
 
    ``exp`` is optional in the specification. ``require_exp=True`` (default)
    is a deliberate fail-closed deviation that rejects marks without ``exp``;
@@ -262,8 +264,8 @@ Entity statements: build, decode, verify
 
    :raises AuthnError: ``code == "trust_mark_missing"`` if no entry of
       ``required_type`` exists; ``"trust_mark_invalid"`` if entries exist but
-      none verifies; ``"symmetric_algorithm"`` if an entry's ``alg`` is
-      ``HS*`` or ``none`` (raised at once).
+      none verifies; ``"symmetric_algorithm"`` if no entry verified and at
+      least one entry's ``alg`` is ``HS*`` or ``none``.
 
    .. versionadded:: 0.7.0
 

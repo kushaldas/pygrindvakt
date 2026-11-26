@@ -24,7 +24,9 @@ adopting a change made in `grindvakt` / `jose-rs` and surfacing it to Python.
 - `federation.verify_trust_marks(marks, issuer_jwks, required_type, *, subject,
   issuer=None, require_exp=True)` and `federation.TRUST_MARK_TYP`: verify
   trust marks from `ResolvedEntity.trust_marks` (core stores them raw). Raises
-  `AuthnError` `trust_mark_missing` / `trust_mark_invalid`.
+  `AuthnError` `trust_mark_missing` / `trust_mark_invalid`. Entries signed
+  with `HS*` / `none` are skipped; `symmetric_algorithm` is raised only if no
+  entry verified. `iat` is required (OpenID Federation 1.0 section 7.1).
 
 - `rp.signed_request_object(..., claims=, prompt=, ui_locales=, acr_values=,
   max_age=, sign_request=)`: signed Request Object parameters (for example
@@ -101,7 +103,7 @@ adopting a change made in `grindvakt` / `jose-rs` and surfacing it to Python.
 ### Deprecated
 
 - Constructing `tokens.AuthCodePayload` without `registration_digest` (or with
-  `None`) now emits a `DeprecationWarning`: the token endpoint skips the
+  `None`) now emits a `FutureWarning`: the token endpoint skips the
   client-registration binding check for such codes. Pass
   `registration_digest=client.registration_fingerprint()` or use
   `Provider.authorization_redirect_with_authorized_claims`. The argument will

@@ -374,18 +374,18 @@ const TRUST_MARK_TYP: &str = "trust-mark+jwt";
 
 /// Verify one trust mark JWT; returns the validated claims or a reason.
 fn verify_one_trust_mark(
-    py: Python<'_>,
     token: &str,
     jwks: &JwkSet,
     required_type: &str,
     subject: &str,
     issuer: Option<&str>,
     require_exp: bool,
-) -> PyResult<Result<EntityStatement, String>> {
-    refuse_mac_or_none(py, token)?;
+) -> Result<EntityStatement, String> {
+    // `iat` is REQUIRED in a trust mark (OpenID Federation 1.0 section 7.1).
     let mut validation = Validation::new()
         .with_typ(TRUST_MARK_TYP)
-        .with_subject(subject);
+        .with_subject(subject)
+        .require_iat();
     if let Some(iss) = issuer {
         validation = validation.with_issuer(iss);
     }
@@ -394,26 +394,22 @@ fn verify_one_trust_mark(
     }
     let claims = match grindvakt::jwt::verify_with_jwks(jwks, token, &validation) {
         Ok(c) => c,
-        Err(e) => return Ok(Err(e.to_string())),
+        Err(e) => return Err(e.to_string()),
     };
     let value = match serde_json::to_value(&claims) {
         Ok(v) => v,
-        Err(e) => return Ok(Err(e.to_string())),
+        Err(e) => return Err(e.to_string()),
     };
     if value.get("trust_mark_type").and_then(Value::as_str) != Some(required_type) {
-        return Ok(Err("inner trust_mark_type does not match the entry".into()));
+        return Err("inner trust_mark_type does not match the entry".into());
     }
     if value.get("iss").and_then(Value::as_str).is_none() {
-        return Ok(Err("trust mark has no iss".into()));
+        return Err("trust mark has no iss".into());
     }
     if value.get("delegation").is_some() {
-        return Ok(Err(
-            "delegated trust marks are not supported (no delegation owner keys)".into(),
-        ));
+        return Err("delegated trust marks are not supported (no delegation owner keys)".into());
     }
-    Ok(Ok(EntityStatement::wrap(gf::EntityStatement {
-        claims: value,
-    })))
+    Ok(EntityStatement::wrap(gf::EntityStatement { claims: value }))
 }
 
 /// Verify the trust marks of a resolved entity (OpenID Federation 1.0
@@ -435,6 +431,7 @@ fn verify_trust_marks(
     let mut verified = Vec::new();
     let mut seen = false;
     let mut last_reason = String::new();
+    let mut refused: Option<PyErr> = None;
     for entry in &marks {
         let Some(obj) = entry.as_object() else {
             continue;
@@ -447,21 +444,21 @@ fn verify_trust_marks(
             last_reason = "entry has no string trust_mark".into();
             continue;
         };
-        match verify_one_trust_mark(
-            py,
-            token,
-            &jwks,
-            required_type,
-            subject,
-            issuer,
-            require_exp,
-        )? {
+        // A MAC/none entry is a per-entry failure; it must not hide a valid mark.
+        if let Err(e) = refuse_mac_or_none(py, token) {
+            refused.get_or_insert(e);
+            continue;
+        }
+        match verify_one_trust_mark(token, &jwks, required_type, subject, issuer, require_exp) {
             Ok(stmt) => verified.push(stmt),
             Err(reason) => last_reason = reason,
         }
     }
     if !verified.is_empty() {
         return Ok(verified);
+    }
+    if let Some(e) = refused {
+        return Err(e);
     }
     if !seen {
         return Err(with_code(

@@ -201,7 +201,20 @@ def signed_request_object(
     acr_values: str | None = ...,
     max_age: int | None = ...,
     sign_request: dict[str, Any] | None = ...,
-) -> str: ...
+) -> str:
+    """Build a signed Request Object (JAR) for ``client`` and ``provider``.
+
+    The optional keyword arguments ``claims``, ``prompt``, ``ui_locales``,
+    ``acr_values``, ``max_age`` and ``sign_request`` are included in the signed
+    payload. ``claims`` and ``sign_request`` must be ``dict``; anything else
+    raises ``TypeError``, and their JSON types are kept. ``sign_request`` is sent
+    as ``https://id.oidc.se/param/signRequest``. A negative ``max_age`` raises
+    ``OverflowError``.
+
+    .. versionchanged:: 0.7.0
+       Added ``claims``, ``prompt``, ``ui_locales``, ``acr_values``,
+       ``max_age`` and ``sign_request``.
+    """
 
 class BeginResult(NamedTuple):
     """Result of ``begin``: a real ``tuple`` ``(url, state, nonce, code_verifier)``.

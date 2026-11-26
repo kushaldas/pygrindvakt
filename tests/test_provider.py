@@ -1042,7 +1042,7 @@ def _self_seal_setup(digest_from_client):
         token_use_store=provider.InMemoryTokenUseStore(),
     )
     now = int(time.time())
-    with contextlib.nullcontext() if digest_from_client else pytest.warns(DeprecationWarning):
+    with contextlib.nullcontext() if digest_from_client else pytest.warns(FutureWarning):
         payload = tokens.AuthCodePayload(
             client_id="demo",
             redirect_uri=REDIRECT_URI,
