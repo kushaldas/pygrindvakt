@@ -260,7 +260,9 @@ Entity statements: build, decode, verify
 
    Entries whose ``trust_mark_type`` is not ``required_type``, and entries
    that are not dicts, are ignored. Each remaining entry's ``trust_mark`` JWT
-   must have ``typ`` ``trust-mark+jwt``, ``sub == subject``, ``iss == issuer``,
+   must have ``typ`` ``trust-mark+jwt``, a ``kid`` header (a mark without
+   one is rejected, so it cannot verify under an arbitrary key of a
+   mixed-trust ``issuer_jwks``), ``sub == subject``, ``iss == issuer``,
    a valid signature, valid ``exp`` / ``nbf`` / ``iat`` (60 s
    leeway; ``iat`` is required, OpenID Federation 1.0 section 7.1), an inner ``trust_mark_type`` equal to ``required_type`` and an
    ``iss``. A ``delegation`` claim fails closed (delegation owner keys are

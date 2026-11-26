@@ -624,7 +624,10 @@ OpenID Federation automatic registration, and some OPs by policy, require the
 authorization parameters to arrive as a signed JWT (RFC 9101).
 :func:`~pygrindvakt.rp.signed_request_object` builds one from the same
 inputs as ``authorization_url``; pass it as the ``request`` parameter
-alongside the plain parameters:
+(RFC 9101 section 3 says the query should carry only ``client_id``,
+``response_type`` and ``request``; the plain parameters that
+``authorization_url`` and ``begin`` still add are not authoritative, so an OP
+must read the signed ones):
 
 .. code-block:: python
 

@@ -386,7 +386,10 @@ fn verify_one_trust_mark(
         .with_typ(TRUST_MARK_TYP)
         .with_subject(subject)
         .with_issuer(issuer)
-        .require_iat();
+        .require_iat()
+        // Without `kid` the try-every-key fallback would verify the mark under
+        // any key in a mixed-trust set.
+        .require_kid();
     if require_exp {
         validation = validation.require_exp();
     }

@@ -28,7 +28,9 @@ adopting a change made in `grindvakt` / `jose-rs` and surfacing it to Python.
   in `issuer_jwks`, so a mark self-signed by its subject is rejected. Raises
   `AuthnError` `trust_mark_missing` / `trust_mark_invalid`. Entries signed
   with `HS*` / `none` are skipped; `symmetric_algorithm` is raised only if no
-  entry verified. `iat` is required (OpenID Federation 1.0 section 7.1).
+  entry verified. `iat` is required (OpenID Federation 1.0 section 7.1), and
+  marks must carry a `kid` header (kid-less marks are rejected so they cannot
+  verify under any key of a mixed-trust set).
 
 - `rp.signed_request_object(..., claims=, prompt=, ui_locales=, acr_values=,
   max_age=, sign_request=)`: signed Request Object parameters (for example

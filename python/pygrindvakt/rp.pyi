@@ -211,6 +211,13 @@ def signed_request_object(
     as ``https://id.oidc.se/param/signRequest``. A negative ``max_age`` raises
     ``OverflowError``.
 
+    RFC 9101 section 3: the query should carry only ``client_id``,
+    ``response_type`` and ``request``; do not repeat parameters that are inside
+    the signed object, because an OP reading the unsigned copy would apply a
+    weaker value. ``authorization_url`` and ``begin`` currently still add the
+    plain parameters. ``sign_request`` is attacker-influenced data for an OP that
+    renders it; the OP must cap its size.
+
     .. versionchanged:: 0.7.0
        Added ``claims``, ``prompt``, ``ui_locales``, ``acr_values``,
        ``max_age`` and ``sign_request``.

@@ -1285,6 +1285,23 @@ def test_verify_trust_marks_hs256_refused(fed):
     assert_invalid(fed, [entry(trust_mark(hs))], code="symmetric_algorithm")
 
 
+def test_verify_trust_marks_kidless_mark_rejected(fed):
+    """A mark without ``kid`` must not verify under any key of the set (try-every-key fallback)."""
+    jwk = keys.generate_ec_jwk()
+    kidless = keys.signing_key_from_jwk(jwk, alg="ES256")
+    with_kid = keys.signing_key_from_jwk(jwk, alg="ES256", kid="tm-1")
+    assert "kid" not in jwt.peek_header(trust_mark(kidless))
+    pub = with_kid.to_public_jwks()
+    for token, ok in ((trust_mark(kidless), False), (trust_mark(with_kid), True)):
+        if ok:
+            out = federation.verify_trust_marks([entry(token)], pub, TM_TYPE, subject=LEAF, issuer=TM_ISSUER)
+            assert len(out) == 1
+        else:
+            with pytest.raises(pygrindvakt.AuthnError) as exc:
+                federation.verify_trust_marks([entry(token)], pub, TM_TYPE, subject=LEAF, issuer=TM_ISSUER)
+            assert exc.value.code == "trust_mark_invalid"
+
+
 def test_verify_trust_marks_missing_iat(fed):
     """OpenID Federation 1.0 section 7.1: ``iat`` is REQUIRED."""
     assert_invalid(fed, [entry(trust_mark(fed.ta_key, iat=None))])

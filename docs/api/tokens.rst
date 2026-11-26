@@ -132,7 +132,9 @@ userinfo response.
          If ``None``, the binding check is **skipped silently**, also for
          codes you build by hand. Constructing an :class:`AuthCodePayload`
          with ``registration_digest=None`` emits a :class:`FutureWarning`
-         (decoding a sealed code does not). Prefer
+         (decoding a sealed code does not). Under ``-W error`` or
+         ``filterwarnings = error::FutureWarning`` the constructor raises
+         instead of warning. Prefer
          :meth:`Provider.authorization_redirect_with_authorized_claims
          <pygrindvakt.provider.Provider.authorization_redirect_with_authorized_claims>`,
          which seals it for you. An OP that hand-seals its codes (advanced)

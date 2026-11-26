@@ -99,8 +99,9 @@ def verify_trust_marks(
     rejects it. Each entry of the type must be a
     ``trust-mark+jwt`` with ``sub == subject`` and ``iss == issuer``,
     inner ``trust_mark_type`` equal to ``required_type``, no ``delegation`` claim
-    (fails closed), a present ``iat`` (required by OpenID Federation 1.0 section 7.1)
-    and valid ``exp`` / ``nbf`` / ``iat``. ``require_exp=True``
+    (fails closed), a present ``iat`` (required by OpenID Federation 1.0 section 7.1),
+    a ``kid`` header (a mark without one is rejected, so it cannot verify under
+    an arbitrary key of a mixed-trust set) and valid ``exp`` / ``nbf`` / ``iat``. ``require_exp=True``
     deliberately rejects marks without ``exp`` (optional in the spec).
     Returns every verified mark. Non-dict entries and other types are ignored.
 

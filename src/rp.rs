@@ -806,15 +806,23 @@ fn json_object_param(
 /// authorization-request parameters as JWT claims, signed with `key`.
 ///
 /// OpenID Federation automatic registration needs this: pass the result as
-/// the `request` parameter (via `authorization_url(..., extra={"request": jar})`)
-/// alongside the plain parameters. `key` must be one of the RP's published
-/// client keys. The object is valid for 300 seconds and carries a `jti`.
+/// the `request` parameter (via `authorization_url(..., extra={"request": jar})`).
+/// `key` must be one of the RP's published client keys. The object is valid for 300 seconds and carries a `jti`.
 /// `redirect_uri` overrides the client's value, as in `authorization_url`.
 ///
 /// The optional `claims`, `prompt`, `ui_locales`, `acr_values`, `max_age` and
 /// `sign_request` (sent as `https://id.oidc.se/param/signRequest`) are
 /// included in the signed payload. `claims` and `sign_request` must be dicts
 /// and keep their JSON types.
+///
+/// RFC 9101 section 3 minimal-query rule: the query should carry only
+/// `client_id`, `response_type` and `request`. Parameters repeated outside the
+/// signed object can be read by an OP that prefers the unsigned copy, which
+/// then applies a weaker value (for example `max_age`, `acr_values`, `claims`,
+/// `prompt`, `ui_locales`, `signRequest`). `authorization_url` and `begin`
+/// currently still add the plain parameters to the query, so an OP must take
+/// them from the request object only. `sign_request` is attacker-influenced
+/// data for an OP that renders it: the OP must cap its size.
 #[pyfunction]
 #[pyo3(signature = (provider, client, key, state, nonce, code_challenge = None, *, redirect_uri = None, claims = None, prompt = None, ui_locales = None, acr_values = None, max_age = None, sign_request = None))]
 #[allow(clippy::too_many_arguments)]

@@ -77,6 +77,10 @@ framework integrations cannot accidentally omit deployment-critical choices.
        data to UserInfo.
      - :meth:`pygrindvakt.provider.Provider.authorization_redirect_with_authorized_claims`
        seals the digest and an explicit UserInfo claim set itself.
+       Migrating from ``authorization_redirect``: the new method has the same
+       call shape but applies **no scope filter**, unlike
+       ``authorization_redirect``. Data minimisation by scope is lost unless
+       the caller filters the claims it passes.
    * - :class:`pygrindvakt.http.ReqwestClient` never follows redirects,
        enforces connect / read / total timeouts, and caps response bodies
        (streamed, so ``Content-Length`` cannot lie). Zero values are

@@ -309,8 +309,7 @@ Starting the flow
 
    OpenID Federation automatic registration needs this: pass the result as
    the ``request`` parameter via ``authorization_url(..., extra={"request":
-   jar})`` alongside the plain parameters. ``key`` must be one of the RP's
-   published client keys. ``redirect_uri`` overrides the client's value, as
+   jar})``. ``key`` must be one of the RP's published client keys. ``redirect_uri`` overrides the client's value, as
    in :func:`authorization_url`.
 
    The keyword arguments ``claims`` (OIDC ``claims`` request), ``prompt``,
@@ -320,6 +319,18 @@ Starting the flow
    ``claims`` and ``sign_request`` must be dicts (``TypeError`` otherwise) and
    keep their JSON types. :func:`begin` does not take them: build the request
    object yourself and pass it via ``extra={"request": jar}``.
+
+   .. warning::
+
+      RFC 9101 section 3 minimal-query rule: the query should carry only
+      ``client_id``, ``response_type`` and ``request``. Do not repeat
+      parameters that are inside the signed request object: an OP that reads
+      the unsigned copy would apply a weaker value (for example ``max_age``,
+      ``acr_values``, ``claims``, ``prompt``, ``ui_locales`` or
+      ``signRequest``). :func:`authorization_url` and :func:`begin` currently
+      still add the plain parameters to the query, so the OP must take them
+      from the request object only. ``sign_request`` is attacker-influenced
+      data for OP integrators that render it; the OP must cap its size.
 
    .. versionchanged:: 0.7.0
       Added ``claims``, ``prompt``, ``ui_locales``, ``acr_values``,
