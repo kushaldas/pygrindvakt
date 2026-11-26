@@ -98,6 +98,16 @@ adopting a change made in `grindvakt` / `jose-rs` and surfacing it to Python.
   the earliest expiry in its validated trust chain, so a cache bounded by it
   cannot outlive the chain.
 
+### Deprecated
+
+- Constructing `tokens.AuthCodePayload` without `registration_digest` (or with
+  `None`) now emits a `DeprecationWarning`: the token endpoint skips the
+  client-registration binding check for such codes. Pass
+  `registration_digest=client.registration_fingerprint()` or use
+  `Provider.authorization_redirect_with_authorized_claims`. The argument will
+  become required in the next minor release. Opening sealed codes (including
+  0.5.x ones) does not warn. `RefreshTokenPayload` has no digest field.
+
 ### Changed
 
 - Bind `grindvakt` 0.13.0 and `jose-rs` 0.13.0 (MSRV stays Rust 1.89).

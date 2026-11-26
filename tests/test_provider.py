@@ -1,6 +1,7 @@
 """OpenID Provider flows driven the way a web app would drive them."""
 
 import base64
+import contextlib
 import hashlib
 import json
 import time
@@ -1041,8 +1042,8 @@ def _self_seal_setup(digest_from_client):
         token_use_store=provider.InMemoryTokenUseStore(),
     )
     now = int(time.time())
-    code = codec.seal_code(
-        tokens.AuthCodePayload(
+    with contextlib.nullcontext() if digest_from_client else pytest.warns(DeprecationWarning):
+        payload = tokens.AuthCodePayload(
             client_id="demo",
             redirect_uri=REDIRECT_URI,
             scope="openid",
@@ -1051,7 +1052,7 @@ def _self_seal_setup(digest_from_client):
             exp=now + 600,
             registration_digest=demo.registration_fingerprint() if digest_from_client else None,
         )
-    )
+    code = codec.seal_code(payload)
     return op, store, code
 
 

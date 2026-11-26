@@ -130,7 +130,9 @@ userinfo response.
       .. warning::
 
          If ``None``, the binding check is **skipped silently**, also for
-         codes you build by hand. Prefer
+         codes you build by hand. Constructing an :class:`AuthCodePayload`
+         with ``registration_digest=None`` emits a :class:`DeprecationWarning`
+         (decoding a sealed code does not). Prefer
          :meth:`Provider.authorization_redirect_with_authorized_claims
          <pygrindvakt.provider.Provider.authorization_redirect_with_authorized_claims>`,
          which seals it for you. An OP that hand-seals its codes (advanced)
@@ -138,6 +140,12 @@ userinfo response.
          secret or key does not invalidate outstanding codes.
 
       .. versionadded:: 0.6.0
+
+      .. versionchanged:: 0.7.0
+         Building a payload with ``registration_digest=None`` emits a
+         :class:`DeprecationWarning`. The argument will become required in a
+         later release. Codes sealed before 0.6.0 still open without a digest
+         and without a warning.
 
    .. py:property:: userinfo_claims
       :type: dict[str, Any] | None
@@ -167,6 +175,10 @@ userinfo response.
 
    .. versionchanged:: 0.6.0
       Added ``registration_digest`` and ``userinfo_claims``.
+
+   .. versionchanged:: 0.7.0
+      Omitting ``registration_digest`` (or passing ``None``) emits a
+      :class:`DeprecationWarning`; it will become required in a later release.
 
 .. py:class:: AccessTokenPayload(*, client_id: str, sub: str, scope: str, exp: int, claims: dict[str, Any] | None = None, cnf_jkt: str | None = None)
 
