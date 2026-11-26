@@ -146,7 +146,7 @@ userinfo response.
       .. versionchanged:: 0.7.0
          Building a payload with ``registration_digest=None`` emits a
          :class:`FutureWarning`. The argument will become required in a
-         later release. Codes sealed before 0.6.0 still open without a digest
+         future release. Codes sealed before 0.6.0 still open without a digest
          and without a warning.
 
    .. py:property:: userinfo_claims
@@ -180,7 +180,7 @@ userinfo response.
 
    .. versionchanged:: 0.7.0
       Omitting ``registration_digest`` (or passing ``None``) emits a
-      :class:`FutureWarning`; it will become required in a later release.
+      :class:`FutureWarning`; it will become required in a future release.
 
 .. py:class:: AccessTokenPayload(*, client_id: str, sub: str, scope: str, exp: int, claims: dict[str, Any] | None = None, cnf_jkt: str | None = None)
 

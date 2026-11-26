@@ -20,7 +20,6 @@ adopting a change made in `grindvakt` / `jose-rs` and surfacing it to Python.
   signed JWT (`typ` `userinfo+jwt`, `aud` = client id, `exp` capped at five
   minutes), or a JWE when the client registered
   `userinfo_encrypted_response_alg`. Serve it as `application/jwt`.
-
 - `federation.verify_trust_marks(marks, issuer_jwks, required_type, *, subject,
   issuer, require_exp=True)` and `federation.TRUST_MARK_TYP`: verify
   trust marks from `ResolvedEntity.trust_marks` (core stores them raw).
@@ -31,7 +30,6 @@ adopting a change made in `grindvakt` / `jose-rs` and surfacing it to Python.
   entry verified. `iat` is required (OpenID Federation 1.0 section 7.1), and
   marks must carry a `kid` header (kid-less marks are rejected so they cannot
   verify under any key of a mixed-trust set).
-
 - `rp.signed_request_object(..., claims=, prompt=, ui_locales=, acr_values=,
   max_age=, sign_request=)`: signed Request Object parameters (for example
   Sweden Connect `signRequest`). `claims` and `sign_request` must be dicts and
@@ -126,7 +124,7 @@ adopting a change made in `grindvakt` / `jose-rs` and surfacing it to Python.
   client-registration binding check for such codes. Pass
   `registration_digest=client.registration_fingerprint()` or use
   `Provider.authorization_redirect_with_authorized_claims`. The argument will
-  become required in the next minor release. Opening sealed codes (including
+  become required in a future release. Opening sealed codes (including
   0.5.x ones) does not warn. `RefreshTokenPayload` has no digest field.
 
 ### Changed
