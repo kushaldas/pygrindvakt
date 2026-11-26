@@ -214,8 +214,8 @@ def signed_request_object(
     RFC 9101 section 3: the query should carry only ``client_id``,
     ``response_type`` and ``request``; do not repeat parameters that are inside
     the signed object, because an OP reading the unsigned copy would apply a
-    weaker value. ``authorization_url`` and ``begin`` currently still add the
-    plain parameters. ``sign_request`` is attacker-influenced data for an OP that
+    weaker value. ``authorization_url`` still adds the plain parameters; ``begin``
+    with these arguments and ``request_object_key`` sends the minimal query. ``sign_request`` is attacker-influenced data for an OP that
     renders it; the OP must cap its size.
 
     .. versionchanged:: 0.7.0
@@ -246,7 +246,36 @@ def begin(
     redirect_uri: str | None = ...,
     pkce: bool = ...,
     request_object_key: SigningKey | None = ...,
-) -> BeginResult: ...
+    claims: dict[str, Any] | None = ...,
+    prompt: str | None = ...,
+    ui_locales: str | None = ...,
+    acr_values: str | None = ...,
+    max_age: int | None = ...,
+    sign_request: dict[str, Any] | None = ...,
+) -> BeginResult:
+    """Start an authorization-code flow: fresh ``state``, ``nonce`` and PKCE.
+
+    With ``request_object_key`` a signed request object (RFC 9101) carrying the
+    same ``state``, ``nonce`` and ``code_challenge`` is added as ``request``.
+
+    The keyword arguments ``claims``, ``prompt``, ``ui_locales``,
+    ``acr_values``, ``max_age`` and ``sign_request`` take the same values as
+    for :func:`signed_request_object` (``claims`` and ``sign_request`` must be
+    ``dict``, else ``TypeError``; a negative ``max_age`` raises
+    ``OverflowError``). They need ``request_object_key``, else ``ValueError``.
+    They are signed into the request object only. When any is given, the query
+    is reduced to the RFC 9101 section 3 minimum: ``client_id``,
+    ``response_type`` and ``request``, plus any ``extra`` entries and
+    parameters already on the authorization endpoint. ``redirect_uri``,
+    ``scope``, ``state``, ``nonce`` and the PKCE challenge are then only in the
+    signed object. Without them the query is unchanged (full plain query plus
+    ``request``).
+
+    .. versionchanged:: 0.7.0
+       Added ``claims``, ``prompt``, ``ui_locales``, ``acr_values``,
+       ``max_age`` and ``sign_request``.
+    """
+
 def claims_audiences(claims: Mapping[str, Any]) -> list[str]:
     """Normalise ``claims["aud"]`` to a NON-EMPTY list of non-empty strings.
 

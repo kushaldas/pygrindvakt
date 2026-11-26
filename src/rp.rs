@@ -862,6 +862,27 @@ fn signed_request_object(
     .map_err(err)
 }
 
+/// Drop the parameters that live inside the signed request object from an
+/// authorization URL (RFC 9101 section 3), keeping everything else verbatim.
+fn minimal_jar_query(url: &str) -> String {
+    const SIGNED: &[&str] = &[
+        "redirect_uri",
+        "scope",
+        "state",
+        "nonce",
+        "code_challenge",
+        "code_challenge_method",
+    ];
+    let Some((base, query)) = url.split_once('?') else {
+        return url.to_string();
+    };
+    let kept: Vec<&str> = query
+        .split('&')
+        .filter(|pair| !SIGNED.contains(&pair.split('=').next().unwrap_or("")))
+        .collect();
+    format!("{base}?{}", kept.join("&"))
+}
+
 /// Start an authorization-code flow in one call.
 ///
 /// Generates a fresh `state` and `nonce` (32 random bytes each) and, unless
@@ -875,8 +896,18 @@ fn signed_request_object(
 /// Public clients (`auth_method="none"`) cannot disable PKCE: `pkce=False`
 /// raises `ConfigError`. When `request_object_key` is given, a signed
 /// request object (RFC 9101) is added as `extra["request"]`.
+///
+/// The keyword-only `claims`, `prompt`, `ui_locales`, `acr_values`, `max_age`
+/// and `sign_request` take the same values as `signed_request_object` and
+/// need `request_object_key` (otherwise `ValueError`). They are signed into
+/// the request object only. When any is given, the query is reduced to the
+/// RFC 9101 section 3 minimum: `client_id`, `response_type`, `request`, plus
+/// any `extra` entries and parameters already on the authorization endpoint.
+/// `redirect_uri`, `scope`, `state`, `nonce` and the PKCE challenge travel
+/// inside the signed object. Without them the query is unchanged.
 #[pyfunction]
-#[pyo3(signature = (provider, client, *, extra = None, redirect_uri = None, pkce = true, request_object_key = None))]
+#[pyo3(signature = (provider, client, *, extra = None, redirect_uri = None, pkce = true, request_object_key = None, claims = None, prompt = None, ui_locales = None, acr_values = None, max_age = None, sign_request = None))]
+#[allow(clippy::too_many_arguments)]
 fn begin<'py>(
     py: Python<'py>,
     provider: &ProviderInfo,
@@ -885,8 +916,34 @@ fn begin<'py>(
     redirect_uri: Option<String>,
     pkce: bool,
     request_object_key: Option<&SigningKey>,
+    claims: Option<&Bound<'_, PyAny>>,
+    prompt: Option<String>,
+    ui_locales: Option<String>,
+    acr_values: Option<String>,
+    max_age: Option<u64>,
+    sign_request: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<Bound<'py, PyAny>> {
     let client = effective_client(client, redirect_uri)?;
+    let params = grp::RequestObjectParameters {
+        claims: json_object_param(claims, "claims")?,
+        prompt,
+        ui_locales,
+        acr_values,
+        max_age,
+        sign_request: json_object_param(sign_request, "sign_request")?,
+    };
+    let has_jar_params = params.claims.is_some()
+        || params.prompt.is_some()
+        || params.ui_locales.is_some()
+        || params.acr_values.is_some()
+        || params.max_age.is_some()
+        || params.sign_request.is_some();
+    if has_jar_params && request_object_key.is_none() {
+        return Err(PyValueError::new_err(
+            "claims, prompt, ui_locales, acr_values, max_age and sign_request \
+             need request_object_key (they are signed into the request object)",
+        ));
+    }
     // Refuse before generating anything: a public client must not run the
     // code flow without PKCE (upstream also enforces this; do not depend on it).
     if !pkce && matches!(client.auth, ClientAuth::None) {
@@ -898,13 +955,14 @@ fn begin<'py>(
     let verifier = pkce.then(|| grindvakt::util::random_token(48));
     let challenge = verifier.as_deref().map(grindvakt::pkce::s256_challenge);
     if let Some(key) = request_object_key {
-        let jar = grp::signed_request_object(
+        let jar = grp::signed_request_object_with(
             &provider.inner,
             &client,
             &key.inner,
             &state,
             &nonce,
             challenge.as_deref(),
+            &params,
         )
         .map_err(err)?;
         extra.push(("request".to_string(), jar));
@@ -922,6 +980,11 @@ fn begin<'py>(
         &extra_refs,
     )
     .map_err(err)?;
+    let url = if has_jar_params {
+        minimal_jar_query(&url)
+    } else {
+        url
+    };
     begin_result_type(py)?.call1((url, state, nonce, verifier))
 }
 

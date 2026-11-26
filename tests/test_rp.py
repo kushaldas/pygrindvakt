@@ -4002,3 +4002,90 @@ def test_signed_request_object_sign_request_signed(prov, rpc, rp_key):
 def test_signed_request_object_rejects_non_object(prov, rpc, rp_key, kw, bad):
     with pytest.raises(TypeError):
         rp.signed_request_object(prov, rpc, rp_key, "st", "n", **{kw: bad})
+
+
+# --- begin(request_object_key=...) signed parameters ----------------------------
+
+
+def _begin_jar(prov, rpc, rp_key, **kw):
+    res = rp.begin(prov, rpc, request_object_key=rp_key, **kw)
+    q = parse_qs(urlsplit(res.url).query)
+    v = jwt.Validation().with_issuer(CLIENT_ID).with_audience(ISSUER)
+    return res, q, jwt.verify_with_jwks(rp_key.to_public_jwks(), q["request"][0], v)
+
+
+def test_begin_signed_params_in_jar_only(prov, rpc, rp_key):
+    wanted = {"id_token": {"acr": {"essential": True, "values": ["urn:a"]}, "auth_time": None}}
+    sr = {"displayName": {"sv": "Avtal"}, "n": 3}
+    res, q, claims = _begin_jar(
+        prov,
+        rpc,
+        rp_key,
+        claims=wanted,
+        prompt="login consent",
+        ui_locales="sv en",
+        acr_values="urn:a urn:b",
+        max_age=0,
+        sign_request=sr,
+    )
+    assert set(q) == {"client_id", "response_type", "request"}
+    assert q["client_id"] == [CLIENT_ID]
+    assert q["response_type"] == ["code"]
+    assert claims["claims"] == wanted
+    assert claims["prompt"] == "login consent"
+    assert claims["ui_locales"] == "sv en"
+    assert claims["acr_values"] == "urn:a urn:b"
+    assert claims["max_age"] == 0
+    assert not isinstance(claims["max_age"], bool)
+    assert claims["https://id.oidc.se/param/signRequest"] == sr
+    assert claims["state"] == res.state
+    assert claims["nonce"] == res.nonce
+    assert claims["code_challenge"] == pkce.s256_challenge(res.code_verifier)
+    assert claims["code_challenge_method"] == "S256"
+
+
+def test_begin_signed_params_keep_extra(prov, rpc, rp_key):
+    _, q, _ = _begin_jar(prov, rpc, rp_key, prompt="login", extra={"ui_hint": "x"})
+    assert set(q) == {"client_id", "response_type", "request", "ui_hint"}
+
+
+def test_begin_signed_params_without_pkce(prov, rpc, rp_key):
+    res, q, claims = _begin_jar(prov, rpc, rp_key, pkce=False, acr_values="urn:a")
+    assert res.code_verifier is None
+    assert "code_challenge" not in claims
+    assert set(q) == {"client_id", "response_type", "request"}
+
+
+def test_begin_request_object_without_params_keeps_full_query(prov, rpc, rp_key):
+    _, q, claims = _begin_jar(prov, rpc, rp_key)
+    assert {"redirect_uri", "scope", "state", "nonce", "code_challenge", "request"} <= set(q)
+    for name in ("claims", "prompt", "ui_locales", "acr_values", "max_age"):
+        assert name not in claims
+
+
+@pytest.mark.parametrize("kw", ["claims", "sign_request"])
+@pytest.mark.parametrize("bad", ["text", ["a"], 1])
+def test_begin_rejects_non_object(prov, rpc, rp_key, kw, bad):
+    with pytest.raises(TypeError):
+        rp.begin(prov, rpc, request_object_key=rp_key, **{kw: bad})
+
+
+def test_begin_rejects_negative_max_age(prov, rpc, rp_key):
+    with pytest.raises(OverflowError):
+        rp.begin(prov, rpc, request_object_key=rp_key, max_age=-1)
+
+
+@pytest.mark.parametrize(
+    "kw",
+    [
+        {"claims": {"id_token": {}}},
+        {"prompt": "login"},
+        {"ui_locales": "sv"},
+        {"acr_values": "urn:a"},
+        {"max_age": 0},
+        {"sign_request": {"a": 1}},
+    ],
+)
+def test_begin_signed_params_need_request_object_key(prov, rpc, kw):
+    with pytest.raises(ValueError, match="request_object_key"):
+        rp.begin(prov, rpc, **kw)

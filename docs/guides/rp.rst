@@ -626,8 +626,13 @@ authorization parameters to arrive as a signed JWT (RFC 9101).
 inputs as ``authorization_url``; pass it as the ``request`` parameter
 (RFC 9101 section 3 says the query should carry only ``client_id``,
 ``response_type`` and ``request``; the plain parameters that
-``authorization_url`` and ``begin`` still add are not authoritative, so an OP
-must read the signed ones):
+``authorization_url`` adds are not authoritative, so an OP must read the signed
+ones). The safe path is ``begin(request_object_key=..., ...)``: it signs the
+generated state, nonce and PKCE challenge together with the optional
+``claims``, ``prompt``, ``ui_locales``, ``acr_values``, ``max_age`` and
+``sign_request``, and then sends only ``client_id``, ``response_type`` and
+``request`` in the query (plus any ``extra``). The manual path below can leave
+the unsigned query and the signed object out of step:
 
 .. code-block:: python
 
@@ -635,7 +640,9 @@ must read the signed ones):
    url = rp.authorization_url(info, me, state, nonce, code_challenge=challenge, extra={"request": jar})
 
    # or, with generated state/nonce/verifier:
-   url, state, nonce, verifier = rp.begin(info, me, request_object_key=rp_key)
+   url, state, nonce, verifier = rp.begin(
+       info, me, request_object_key=rp_key, acr_values="urn:acr:2", max_age=300
+   )
 
 Using a custom HTTP client
 --------------------------

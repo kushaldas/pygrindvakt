@@ -264,7 +264,7 @@ Starting the flow
    :class:`pygrindvakt.BadRequestError` is raised, and the same value must
    be passed to :func:`exchange_code`; keep it in the session.
 
-.. py:function:: begin(provider: ProviderInfo, client: RpClient, *, extra: dict[str, str] | list[tuple[str, str]] | None = None, redirect_uri: str | None = None, pkce: bool = True, request_object_key: SigningKey | None = None) -> BeginResult
+.. py:function:: begin(provider: ProviderInfo, client: RpClient, *, extra: dict[str, str] | list[tuple[str, str]] | None = None, redirect_uri: str | None = None, pkce: bool = True, request_object_key: SigningKey | None = None, claims: dict[str, Any] | None = None, prompt: str | None = None, ui_locales: str | None = None, acr_values: str | None = None, max_age: int | None = None, sign_request: dict[str, Any] | None = None) -> BeginResult
 
    Start an authorization-code flow: generate a fresh ``state`` and
    ``nonce`` (32 random bytes each, base64url) and a PKCE verifier (48
@@ -279,6 +279,23 @@ Starting the flow
    object (see :func:`signed_request_object`) is added as the ``request``
    parameter. ``extra`` and ``redirect_uri`` behave as in
    :func:`authorization_url`.
+
+   The keyword arguments ``claims``, ``prompt``, ``ui_locales``,
+   ``acr_values``, ``max_age`` and ``sign_request`` take the same values as
+   for :func:`signed_request_object` (``TypeError`` for a non-dict ``claims``
+   or ``sign_request``, ``OverflowError`` for a negative ``max_age``) and
+   need ``request_object_key`` (``ValueError`` otherwise). They are signed
+   into the request object only, together with the generated ``state``,
+   ``nonce`` and PKCE challenge. When any is given, the query is reduced to the
+   RFC 9101 section 3 minimum: ``client_id``, ``response_type`` and
+   ``request``, plus any ``extra`` entries and parameters already on the
+   authorization endpoint (``redirect_uri``, ``scope``, ``state``, ``nonce``
+   and the challenge move into the signed object). Without these arguments the
+   query is unchanged. This is the safe one-call path.
+
+   .. versionchanged:: 0.7.0
+      Added ``claims``, ``prompt``, ``ui_locales``, ``acr_values``,
+      ``max_age`` and ``sign_request``.
 
 .. py:class:: BeginResult
 
@@ -317,8 +334,9 @@ Starting the flow
    ``https://id.oidc.se/param/signRequest``, for Sweden Connect signature
    requests) are placed inside the signed payload and omitted when ``None``.
    ``claims`` and ``sign_request`` must be dicts (``TypeError`` otherwise) and
-   keep their JSON types. :func:`begin` does not take them: build the request
-   object yourself and pass it via ``extra={"request": jar}``.
+   keep their JSON types. :func:`begin` takes the same arguments (with
+   ``request_object_key``) and then also trims the query to the minimum;
+   prefer it over building the request object by hand.
 
    .. warning::
 
@@ -327,9 +345,10 @@ Starting the flow
       parameters that are inside the signed request object: an OP that reads
       the unsigned copy would apply a weaker value (for example ``max_age``,
       ``acr_values``, ``claims``, ``prompt``, ``ui_locales`` or
-      ``signRequest``). :func:`authorization_url` and :func:`begin` currently
-      still add the plain parameters to the query, so the OP must take them
-      from the request object only. ``sign_request`` is attacker-influenced
+      ``signRequest``). :func:`authorization_url` still adds the plain
+      parameters to the query, so with it the OP must take them from the
+      request object only. :func:`begin` with ``request_object_key`` and
+      these arguments sends the minimal query. ``sign_request`` is attacker-influenced
       data for OP integrators that render it; the OP must cap its size.
 
    .. versionchanged:: 0.7.0

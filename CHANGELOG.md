@@ -35,7 +35,13 @@ adopting a change made in `grindvakt` / `jose-rs` and surfacing it to Python.
 - `rp.signed_request_object(..., claims=, prompt=, ui_locales=, acr_values=,
   max_age=, sign_request=)`: signed Request Object parameters (for example
   Sweden Connect `signRequest`). `claims` and `sign_request` must be dicts and
-  keep their JSON types. `rp.begin` is unchanged.
+  keep their JSON types. `rp.begin(request_object_key=..., claims=, prompt=,
+  ui_locales=, acr_values=, max_age=, sign_request=)` takes the same arguments:
+  they are signed into the request object together with the generated state,
+  nonce and PKCE challenge, and the query is reduced to `client_id`,
+  `response_type` and `request` (plus `extra`), per RFC 9101 section 3. They
+  need `request_object_key` (`ValueError` otherwise). `begin` is unchanged
+  when none is given.
 - `Provider.consume_request_id(client_id, jti, expiry)`: OP-side one-time use
   of a verified request object `jti`. Raises `OAuthError` `invalid_request`
   (empty or over-512-byte `jti`, past `expiry`, or `expiry` more than 900 s

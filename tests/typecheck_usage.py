@@ -512,6 +512,21 @@ def use_signed_request_object_params(info: rp.ProviderInfo, me: rp.RpClient, key
     del jar
 
 
+def use_begin_signed_params(info: rp.ProviderInfo, me: rp.RpClient, key: keys.SigningKey) -> None:
+    res: rp.BeginResult = rp.begin(
+        info,
+        me,
+        request_object_key=key,
+        claims={"id_token": {"acr": {"essential": True}}},
+        prompt="login",
+        ui_locales="sv en",
+        acr_values="urn:acr:2",
+        max_age=300,
+        sign_request={"displayName": {"en": "x"}},
+    )
+    del res
+
+
 def use_testing(op: provider.Provider, key: keys.SigningKey) -> None:
     """``pygrindvakt.testing`` is type-checked here, so it is covered by ``--strict``."""
     route: testing.FetchResult = (200, b"{}", "application/json", (("Cache-Control", "max-age=60"),))
