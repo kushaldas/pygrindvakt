@@ -203,6 +203,9 @@ a signed request object:
    url = rp.authorization_url(info, me, state, nonce, code_challenge=challenge,
                               extra={"prompt": "login", "acr_values": "urn:mfa"})
 
+Do not combine these with a request object: see the signed request object
+section below.
+
 The callback: exchange and verify
 ---------------------------------
 
@@ -631,7 +634,11 @@ ones). The safe path is ``begin(request_object_key=..., ...)``: it signs the
 generated state, nonce and PKCE challenge together with the optional
 ``claims``, ``prompt``, ``ui_locales``, ``acr_values``, ``max_age`` and
 ``sign_request``, and then sends only ``client_id``, ``response_type`` and
-``request`` in the query (plus any ``extra``). The manual path below can leave
+``request`` in the query (plus any ``extra``). ``authorization_url`` and
+``begin`` refuse ``extra`` entries named ``claims``, ``prompt``,
+``ui_locales``, ``acr_values``, ``max_age`` or ``signRequest`` when a request
+object is attached (``ValueError``): put them in the signed object only. The
+manual path below can leave
 the unsigned query and the signed object out of step:
 
 .. code-block:: python

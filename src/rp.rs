@@ -712,6 +712,37 @@ fn extra_params(extra: Option<&Bound<'_, PyAny>>) -> PyResult<Vec<(String, Strin
     }
 }
 
+/// Keys that, when sent in the query next to a request object, would give an
+/// OP an unsigned (weaker) copy of a parameter the signed object carries.
+const JAR_ONLY_KEYS: &[&str] = &[
+    "claims",
+    "prompt",
+    "ui_locales",
+    "acr_values",
+    "max_age",
+    "signRequest",
+    "https://id.oidc.se/param/signRequest",
+];
+
+/// RFC 9101 section 3: refuse unsigned copies of request-object parameters.
+fn reject_unsigned_jar_copies(extra: &[(String, String)]) -> PyResult<()> {
+    let mut bad: Vec<&str> = Vec::new();
+    for (k, _) in extra {
+        if JAR_ONLY_KEYS.contains(&k.as_str()) && !bad.contains(&k.as_str()) {
+            bad.push(k.as_str());
+        }
+    }
+    if bad.is_empty() {
+        return Ok(());
+    }
+    Err(PyValueError::new_err(format!(
+        "extra must not carry {} when a request object is attached: an OP may \
+         apply the unsigned query copy instead of the signed one. Put these in \
+         the signed request object only (RFC 9101 section 3)",
+        bad.join(", ")
+    )))
+}
+
 /// Return the upstream client, with `redirect_uri` swapped in when given.
 ///
 /// SECURITY: an override is accepted only if it equals the client's
@@ -756,6 +787,10 @@ fn effective_client(client: &RpClient, redirect_uri: Option<String>) -> PyResult
 /// session; `code_challenge` is the PKCE `S256` challenge
 /// (`pygrindvakt.pkce.s256_challenge`). `extra` adds further query
 /// parameters (e.g. `{"prompt": "login"}` or a signed `request` object).
+/// When `extra` carries `request` or `request_uri`, it must not also carry
+/// `claims`, `prompt`, `ui_locales`, `acr_values`, `max_age`, `signRequest`
+/// or `https://id.oidc.se/param/signRequest` (`ValueError`, RFC 9101
+/// section 3): put them in the signed request object only.
 #[pyfunction]
 #[pyo3(signature = (provider, client, state, nonce, code_challenge = None, extra = None, *, redirect_uri = None))]
 fn authorization_url(
@@ -769,6 +804,12 @@ fn authorization_url(
 ) -> PyResult<String> {
     let client = effective_client(client, redirect_uri)?;
     let extra = extra_params(extra)?;
+    if extra
+        .iter()
+        .any(|(k, _)| k == "request" || k == "request_uri")
+    {
+        reject_unsigned_jar_copies(&extra)?;
+    }
     let extra_refs: Vec<(&str, &str)> = extra
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
@@ -905,6 +946,9 @@ fn minimal_jar_query(url: &str) -> String {
 /// any `extra` entries and parameters already on the authorization endpoint.
 /// `redirect_uri`, `scope`, `state`, `nonce` and the PKCE challenge travel
 /// inside the signed object. Without them the query is unchanged.
+/// With a request object attached, `extra` must not carry any of those
+/// parameters (or `signRequest`, `https://id.oidc.se/param/signRequest`):
+/// `ValueError`, since the unsigned copy could override the signed one.
 #[pyfunction]
 #[pyo3(signature = (provider, client, *, extra = None, redirect_uri = None, pkce = true, request_object_key = None, claims = None, prompt = None, ui_locales = None, acr_values = None, max_age = None, sign_request = None))]
 #[allow(clippy::too_many_arguments)]
@@ -950,6 +994,9 @@ fn begin<'py>(
         return Err(config_err("public clients must use S256 PKCE"));
     }
     let mut extra = extra_params(extra)?;
+    if request_object_key.is_some() || extra.iter().any(|(k, _)| k == "request_uri") {
+        reject_unsigned_jar_copies(&extra)?;
+    }
     let state = grindvakt::util::random_token(32);
     let nonce = grindvakt::util::random_token(32);
     let verifier = pkce.then(|| grindvakt::util::random_token(48));

@@ -259,6 +259,15 @@ Starting the flow
    ``ValueError``. Library-controlled parameter names and ambiguous duplicate
    extension names are rejected; repeatable ``resource`` remains supported.
 
+   When ``extra`` carries ``request`` or ``request_uri`` (a request object),
+   it must not also carry ``claims``, ``prompt``, ``ui_locales``,
+   ``acr_values``, ``max_age``, ``signRequest`` or
+   ``https://id.oidc.se/param/signRequest``: :class:`ValueError` names the
+   offending keys. An OP could apply the unsigned query copy instead of the
+   signed one (RFC 9101 section 3); put them in the request object only.
+   Without a request object these are ordinary parameters and stay allowed.
+   Matching is exact and case-sensitive.
+
    ``redirect_uri`` overrides the client's configured value for this call
    only. It must be an absolute URL without a fragment, else
    :class:`pygrindvakt.BadRequestError` is raised, and the same value must
@@ -292,6 +301,12 @@ Starting the flow
    authorization endpoint (``redirect_uri``, ``scope``, ``state``, ``nonce``
    and the challenge move into the signed object). Without these arguments the
    query is unchanged. This is the safe one-call path.
+
+   With a request object attached (``request_object_key``, or ``request_uri``
+   in ``extra``), ``extra`` must not contain ``claims``, ``prompt``,
+   ``ui_locales``, ``acr_values``, ``max_age``, ``signRequest`` or
+   ``https://id.oidc.se/param/signRequest``; ``ValueError`` names the keys
+   (this includes a key that duplicates one of the keyword arguments above).
 
    .. versionchanged:: 0.7.0
       Added ``claims``, ``prompt``, ``ui_locales``, ``acr_values``,
@@ -345,10 +360,10 @@ Starting the flow
       parameters that are inside the signed request object: an OP that reads
       the unsigned copy would apply a weaker value (for example ``max_age``,
       ``acr_values``, ``claims``, ``prompt``, ``ui_locales`` or
-      ``signRequest``). :func:`authorization_url` still adds the plain
-      parameters to the query, so with it the OP must take them from the
-      request object only. :func:`begin` with ``request_object_key`` and
-      these arguments sends the minimal query. ``sign_request`` is attacker-influenced
+      ``signRequest``). :func:`authorization_url` and :func:`begin` raise
+      ``ValueError`` if ``extra`` repeats them next to a request object.
+      :func:`begin` with ``request_object_key`` and these arguments sends the
+      minimal query. ``sign_request`` is attacker-influenced
       data for OP integrators that render it; the OP must cap its size.
 
    .. versionchanged:: 0.7.0

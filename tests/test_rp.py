@@ -4089,3 +4089,83 @@ def test_begin_rejects_negative_max_age(prov, rpc, rp_key):
 def test_begin_signed_params_need_request_object_key(prov, rpc, kw):
     with pytest.raises(ValueError, match="request_object_key"):
         rp.begin(prov, rpc, **kw)
+
+
+# --- extra must not repeat signed request-object parameters ---------------------
+
+_JAR_KEYS = [
+    "claims",
+    "prompt",
+    "ui_locales",
+    "acr_values",
+    "max_age",
+    "signRequest",
+    "https://id.oidc.se/param/signRequest",
+]
+
+
+@pytest.mark.parametrize("key", _JAR_KEYS)
+@pytest.mark.parametrize("ref", ["request", "request_uri"])
+def test_authorization_url_refuses_unsigned_copy_with_request(prov, rpc, key, ref):
+    with pytest.raises(ValueError, match="RFC 9101") as ei:
+        rp.authorization_url(prov, rpc, "st", "n", extra={ref: "x", key: "x"})
+    assert key in str(ei.value)
+
+
+@pytest.mark.parametrize("key", _JAR_KEYS)
+def test_authorization_url_accepts_keys_without_request(prov, rpc, key):
+    url = rp.authorization_url(prov, rpc, "st", "n", extra={key: "x"})
+    assert parse_qs(urlsplit(url).query)[key] == ["x"]
+
+
+def test_authorization_url_request_with_unrelated_extra_ok(prov, rpc, rp_key):
+    jar = rp.signed_request_object(prov, rpc, rp_key, "st", "n")
+    url = rp.authorization_url(prov, rpc, "st", "n", extra=[("request", jar), ("ui_hint", "x")])
+    q = parse_qs(urlsplit(url).query)
+    assert q["request"] == [jar]
+    assert q["ui_hint"] == ["x"]
+
+
+def test_authorization_url_names_all_offending_keys(prov, rpc):
+    with pytest.raises(ValueError) as ei:
+        rp.authorization_url(prov, rpc, "st", "n", extra=[("request", "j"), ("max_age", "0"), ("prompt", "none")])
+    assert "max_age" in str(ei.value) and "prompt" in str(ei.value)
+
+
+@pytest.mark.parametrize("key", _JAR_KEYS)
+def test_begin_refuses_extra_key_with_request_object(prov, rpc, rp_key, key):
+    with pytest.raises(ValueError) as ei:
+        rp.begin(prov, rpc, request_object_key=rp_key, extra={key: "0"})
+    assert key in str(ei.value)
+
+
+def test_begin_refuses_extra_max_age_with_request_object(prov, rpc, rp_key):
+    with pytest.raises(ValueError, match="max_age"):
+        rp.begin(prov, rpc, request_object_key=rp_key, extra={"max_age": "0"})
+
+
+def test_begin_refuses_duplicate_of_jar_argument(prov, rpc, rp_key):
+    with pytest.raises(ValueError, match="acr_values"):
+        rp.begin(
+            prov,
+            rpc,
+            request_object_key=rp_key,
+            acr_values="urn:a",
+            extra={"acr_values": "urn:weak"},
+        )
+
+
+@pytest.mark.parametrize("key", _JAR_KEYS)
+def test_begin_without_request_object_keeps_extra(prov, rpc, key):
+    res = rp.begin(prov, rpc, extra={key: "x"})
+    assert parse_qs(urlsplit(res.url).query)[key] == ["x"]
+
+
+def test_begin_request_uri_extra_refuses_keys(prov, rpc):
+    with pytest.raises(ValueError, match="prompt"):
+        rp.begin(prov, rpc, extra={"request_uri": "https://rp/r", "prompt": "none"})
+
+
+def test_begin_unrelated_extra_with_request_object_ok(prov, rpc, rp_key):
+    _, q, _ = _begin_jar(prov, rpc, rp_key, extra={"ui_hint": "x"})
+    assert q["ui_hint"] == ["x"]

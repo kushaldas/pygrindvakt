@@ -50,6 +50,14 @@ adopting a change made in `grindvakt` / `jose-rs` and surfacing it to Python.
 
 ### Security
 
+- `rp.authorization_url` and `rp.begin` raise `ValueError` when a request
+  object is attached (`request` or `request_uri` in `extra`, or
+  `request_object_key`) and `extra` also holds `claims`, `prompt`,
+  `ui_locales`, `acr_values`, `max_age`, `signRequest` or
+  `https://id.oidc.se/param/signRequest`. An OP could otherwise apply the
+  unsigned copy instead of the signed one (RFC 9101 section 3). Without a
+  request object `extra` is unchanged.
+
 - Trust marks can now be verified. Pass the keys of the trust mark issuer
   (the trust anchor only if it issues the mark itself). `exp` is optional in
   the spec; `require_exp=True` is a deliberate fail-closed deviation.

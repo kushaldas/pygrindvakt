@@ -214,9 +214,11 @@ def signed_request_object(
     RFC 9101 section 3: the query should carry only ``client_id``,
     ``response_type`` and ``request``; do not repeat parameters that are inside
     the signed object, because an OP reading the unsigned copy would apply a
-    weaker value. ``authorization_url`` still adds the plain parameters; ``begin``
-    with these arguments and ``request_object_key`` sends the minimal query. ``sign_request`` is attacker-influenced data for an OP that
-    renders it; the OP must cap its size.
+    weaker value. ``authorization_url`` and ``begin`` refuse these parameters in
+    ``extra`` when a request object is attached (``ValueError``); ``begin`` with
+    these arguments and ``request_object_key`` sends the minimal query.
+    ``sign_request`` is attacker-influenced data for an OP that renders it; the
+    OP must cap its size.
 
     .. versionchanged:: 0.7.0
        Added ``claims``, ``prompt``, ``ui_locales``, ``acr_values``,
@@ -270,6 +272,13 @@ def begin(
     ``scope``, ``state``, ``nonce`` and the PKCE challenge are then only in the
     signed object. Without them the query is unchanged (full plain query plus
     ``request``).
+
+    With a request object attached (``request_object_key``, or ``request_uri``
+    in ``extra``), ``extra`` must not contain ``claims``, ``prompt``,
+    ``ui_locales``, ``acr_values``, ``max_age``, ``signRequest`` or
+    ``https://id.oidc.se/param/signRequest``: ``ValueError`` naming the keys,
+    because an OP could apply the unsigned copy (RFC 9101 section 3). Put them
+    in the signed object only.
 
     .. versionchanged:: 0.7.0
        Added ``claims``, ``prompt``, ``ui_locales``, ``acr_values``,
