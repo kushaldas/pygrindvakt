@@ -4301,3 +4301,60 @@ def test_endpoint_uppercase_jar_key_refused_with_request_object(rpc):
     p = rp.ProviderInfo(ISSUER, f"{ISSUER}/authorize?PROMPT=none", f"{ISSUER}/token")
     with pytest.raises(ConfigError, match="PROMPT"):
         rp.begin(p, rpc, extra={"request": "a.b.c"})
+
+
+_DUP_OBJECTS = [
+    ("request", "request"),
+    ("request", "Request"),
+    ("request_uri", "REQUEST_URI"),
+    ("request", "request_uri"),
+    (" request", "request"),
+]
+
+
+@pytest.mark.parametrize("names", _DUP_OBJECTS)
+def test_begin_refuses_repeated_request_object_without_key(prov, rpc, names):
+    extra = [(names[0], "jar1"), (names[1], "jar2")]
+    with pytest.raises(ValueError, match="RFC 9101"):
+        rp.begin(prov, rpc, extra=extra)
+
+
+@pytest.mark.parametrize("names", _DUP_OBJECTS)
+def test_authorization_url_refuses_repeated_request_object(prov, rpc, names):
+    extra = [(names[0], "jar1"), (names[1], "jar2")]
+    with pytest.raises(ValueError, match="RFC 9101"):
+        rp.authorization_url(prov, rpc, "st", "n", extra=extra)
+
+
+def test_repeated_request_object_message_echoes_spellings(prov, rpc):
+    with pytest.raises(ValueError, match="more than one request object") as ei:
+        rp.begin(prov, rpc, extra=[("request", "a"), (" Request", "b")])
+    assert "request" in str(ei.value) and " Request" in str(ei.value)
+
+
+@pytest.mark.parametrize("ref", ["request", "request_uri"])
+def test_single_request_object_in_pair_list_accepted(prov, rpc, ref):
+    assert rp.begin(prov, rpc, extra=[(ref, "x")]).url
+    assert rp.authorization_url(prov, rpc, "st", "n", extra=[(ref, "x")])
+
+
+@pytest.mark.parametrize("query", ["request_uri=urn:other", "Request=x", "%20request_uri%20=urn%3Aother"])
+def test_begin_endpoint_with_request_object_refused_with_key(rpc, rp_key, query):
+    p = rp.ProviderInfo(ISSUER, f"{ISSUER}/authorize?{query}", f"{ISSUER}/token")
+    with pytest.raises(ConfigError, match="authorization_endpoint"):
+        rp.begin(p, rpc, request_object_key=rp_key, prompt="login")
+
+
+@pytest.mark.parametrize("query", ["request_uri=urn:other", "Request=x"])
+def test_endpoint_with_request_object_refused_with_extra_request(rpc, query):
+    p = rp.ProviderInfo(ISSUER, f"{ISSUER}/authorize?{query}", f"{ISSUER}/token")
+    with pytest.raises(ConfigError, match="authorization_endpoint"):
+        rp.authorization_url(p, rpc, "s", "n", extra={"request": "jar"})
+    with pytest.raises(ConfigError, match="authorization_endpoint"):
+        rp.begin(p, rpc, extra={"request": "jar"})
+
+
+def test_endpoint_with_request_uri_accepted_without_other_object(rpc):
+    p = rp.ProviderInfo(ISSUER, f"{ISSUER}/authorize?request_uri=urn:other", f"{ISSUER}/token")
+    assert parse_qs(urlsplit(rp.begin(p, rpc).url).query)["request_uri"] == ["urn:other"]
+    assert parse_qs(urlsplit(rp.authorization_url(p, rpc, "s", "n")).query)["request_uri"] == ["urn:other"]

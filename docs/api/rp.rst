@@ -267,13 +267,20 @@ Starting the flow
    signed one (RFC 9101 section 3); put them in the request object only.
    ``extra`` must not carry both ``request`` and ``request_uri``:
    :class:`ValueError` (RFC 9101 section 3; an OP's precedence between two
-   request objects is undefined). Build ``extra`` from configuration only.
+   request objects is undefined). More than one ``request`` / ``request_uri``
+   entry in total (a repeated name, ``request`` plus ``Request``, or
+   ``request`` plus ``request_uri``) is a :class:`ValueError` too, because
+   an OP that folds names would see two request objects. Build ``extra`` from
+   configuration only.
    Without a request object these are ordinary parameters and stay allowed.
    The same names in the query of the provider's ``authorization_endpoint``
    are refused with :class:`pygrindvakt.ConfigError` when a request object is
    attached (``extra`` holds ``request`` or ``request_uri``): move them into
-   the signed request object and remove them from the endpoint. Other
-   endpoint query pairs are not checked and stay the caller's responsibility.
+   the signed request object and remove them from the endpoint. An endpoint
+   query carrying ``request`` or ``request_uri`` (any case) is refused the
+   same way whenever another request object is attached
+   (``request_object_key``, or ``request`` / ``request_uri`` in ``extra``).
+   Other endpoint query pairs are not checked and stay the caller's responsibility.
    Matching is case-insensitive and ignores surrounding whitespace in
    names (``Request``, ``request_uri `` and ``MAX_AGE`` count; errors echo
    the original spelling), and covers only the parameters this
@@ -318,7 +325,11 @@ Starting the flow
    ``extra`` must not carry ``request`` or ``request_uri`` together with
    ``request_object_key``, nor both ``request`` and ``request_uri``: these
    would send two request objects (RFC 9101 section 3, RFC 9126 section 3)
-   and raise :class:`ValueError`.
+   and raise :class:`ValueError`; so does more than one ``request`` /
+   ``request_uri`` entry in ``extra`` (names trimmed and lowercased first).
+   An ``authorization_endpoint`` query carrying ``request`` or
+   ``request_uri`` is refused with :class:`pygrindvakt.ConfigError` when any
+   of these objects is attached.
 
    With a request object attached (``request_object_key``, or ``request`` /
    ``request_uri`` in ``extra``), ``extra`` must not contain ``claims``,

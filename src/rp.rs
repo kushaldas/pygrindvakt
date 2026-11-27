@@ -757,6 +757,20 @@ fn reject_unsigned_jar_copies(extra: &[(String, String)], has_request_key: bool)
             "extra must not carry both request and request_uri (RFC 9101 section 3)",
         ));
     }
+    // Names are compared normalized: an OP that folds names would see two
+    // request objects in `request` + `Request`.
+    let objects: Vec<&str> = extra
+        .iter()
+        .filter(|(k, _)| matches!(norm_key(k).as_str(), "request" | "request_uri"))
+        .map(|(k, _)| k.as_str())
+        .collect();
+    if objects.len() > 1 {
+        return Err(PyValueError::new_err(format!(
+            "extra must not carry more than one request object ({}): an OP may \
+             fold names and see two (RFC 9101 section 3)",
+            objects.join(", ")
+        )));
+    }
     if !has_request_key && !extra_has_request_object(extra) {
         return Ok(());
     }
@@ -772,10 +786,24 @@ fn reject_endpoint_jar_keys(endpoint: &str) -> PyResult<()> {
     };
     let query = query.split('#').next().unwrap_or("");
     let mut bad: Vec<String> = Vec::new();
+    let mut objs: Vec<String> = Vec::new();
     for (k, _) in url::form_urlencoded::parse(query.as_bytes()) {
+        if matches!(norm_key(&k).as_str(), "request" | "request_uri")
+            && !objs.iter().any(|b| b == k.as_ref())
+        {
+            objs.push(k.to_string());
+        }
         if JAR_ONLY_KEYS.contains(&norm_key(&k).as_str()) && !bad.iter().any(|b| b == k.as_ref()) {
             bad.push(k.into_owned());
         }
+    }
+    if !objs.is_empty() {
+        return Err(config_err(format!(
+            "authorization_endpoint query must not carry {} when another request \
+             object is attached: the OP would receive two request objects. Remove \
+             them from authorization_endpoint (RFC 9101 section 3)",
+            objs.join(", ")
+        )));
     }
     if bad.is_empty() {
         return Ok(());

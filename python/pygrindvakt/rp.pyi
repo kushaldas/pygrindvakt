@@ -217,8 +217,12 @@ def signed_request_object(
     weaker value. ``authorization_url`` and ``begin`` refuse these parameters in
     ``extra`` when a request object is attached, and refuse a second request
     object (``request`` and ``request_uri`` together, or either with
-    ``request_object_key``) (``ValueError``). An endpoint query pair named
-    like one of those parameters is refused with ``ConfigError``; other
+    ``request_object_key``) (``ValueError``). More than one ``request`` /
+    ``request_uri`` entry in ``extra`` is refused too, counting names
+    case-insensitively with whitespace trimmed (``request`` plus ``Request``).
+    An endpoint query pair named like one of those parameters, or named
+    ``request`` / ``request_uri``, is refused with ``ConfigError`` when a
+    request object is attached (a second object); other
     endpoint pairs are not checked. ``begin`` with
     these arguments and ``request_object_key`` sends the minimal query.
     ``sign_request`` is attacker-influenced data for an OP that renders it; the

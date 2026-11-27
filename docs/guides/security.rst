@@ -534,6 +534,8 @@ Endpoint query pairs that are not JAR-only names
    would re-send an unsigned copy of a signed parameter. Any other endpoint
    pair (``claims_locales``, ``login_hint``, a tenant selector) is passed
    through unchecked: keep security-relevant values out of the endpoint URL.
+   An endpoint query that carries ``request`` or ``request_uri`` is likewise
+   refused with ``ConfigError`` when another request object is attached.
 
 Python protocol adapters
    A ``ClientStore``, ``TokenUseStore``, ``ReplayStore`` or ``HttpClient``
