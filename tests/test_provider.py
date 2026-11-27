@@ -1631,7 +1631,7 @@ def test_consume_request_id_refuses_far_future_expiry_without_consuming(op):
     with pytest.raises(OAuthError) as exc:
         op.consume_request_id("demo", "jti-far", year_2100)
     assert exc.value.code == "invalid_request"
-    assert "900" in (exc.value.description or "")
+    assert "900" not in (exc.value.description or "")
     # Refusal wrote no marker: the same jti still works with a valid expiry.
     assert op.consume_request_id("demo", "jti-far", int(time.time()) + 300) is None
 

@@ -48,6 +48,16 @@ adopting a change made in `grindvakt` / `jose-rs` and surfacing it to Python.
   ahead, which is refused without recording anything) or `invalid_grant`
   (replay). Use a shared `token_use_store` across replicas.
 
+### Changed
+
+- `rp.authorization_url` and `rp.begin` now raise `ValueError` (`ConfigError`
+  for endpoint query collisions) for call shapes that worked in 0.6.0, for
+  example `extra={"request": jar, "acr_values": ...}`, `request` together with
+  `request_uri`, or an endpoint query holding signed-parameter names. Move the
+  parameter into `signed_request_object(...)` or use
+  `begin(request_object_key=..., acr_values=...)`. Guard matching is
+  case-insensitive and trims whitespace in names.
+
 ### Security
 
 - `rp.authorization_url` and `rp.begin` raise `ValueError` when a request

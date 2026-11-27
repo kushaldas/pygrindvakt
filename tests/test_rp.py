@@ -4271,3 +4271,33 @@ def test_endpoint_with_jar_only_key_accepted_without_request_object(rpc):
     assert q["prompt"] == ["none"] and q["acr_values"] == ["loa1"]
     q = parse_qs(urlsplit(rp.authorization_url(p, rpc, "s", "n")).query)
     assert q["prompt"] == ["none"] and q["acr_values"] == ["loa1"]
+
+
+@pytest.mark.parametrize("ref", ["Request", "REQUEST_URI", "request "])
+@pytest.mark.parametrize("fn", ["authorization_url", "begin"])
+def test_jar_detection_normalizes_request_name(prov, rpc, ref, fn):
+    extra = {ref: "x", "prompt": "none"}
+    with pytest.raises(ValueError, match="RFC 9101") as ei:
+        if fn == "begin":
+            rp.begin(prov, rpc, extra=extra)
+        else:
+            rp.authorization_url(prov, rpc, "st", "n", extra=extra)
+    assert "prompt" in str(ei.value)
+
+
+@pytest.mark.parametrize("key", ["MAX_AGE", "Acr_Values", " prompt"])
+@pytest.mark.parametrize("fn", ["authorization_url", "begin"])
+def test_jar_only_key_matching_normalized_echoes_original(prov, rpc, key, fn):
+    extra = {"request": "x", key: "0"}
+    with pytest.raises(ValueError, match="RFC 9101") as ei:
+        if fn == "begin":
+            rp.begin(prov, rpc, extra=extra)
+        else:
+            rp.authorization_url(prov, rpc, "st", "n", extra=extra)
+    assert key in str(ei.value)
+
+
+def test_endpoint_uppercase_jar_key_refused_with_request_object(rpc):
+    p = rp.ProviderInfo(ISSUER, f"{ISSUER}/authorize?PROMPT=none", f"{ISSUER}/token")
+    with pytest.raises(ConfigError, match="PROMPT"):
+        rp.begin(p, rpc, extra={"request": "a.b.c"})

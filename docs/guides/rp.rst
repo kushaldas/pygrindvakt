@@ -639,7 +639,12 @@ generated state, nonce and PKCE challenge together with the optional
 ``ui_locales``, ``acr_values``, ``max_age`` or ``signRequest`` when a request
 object is attached (``ValueError``): put them in the signed object only. The
 manual path below can leave
-the unsigned query and the signed object out of step:
+the unsigned query and the signed object out of step. Names are matched
+case-insensitively with whitespace trimmed. Call shapes that worked in 0.6.0
+(``extra={"request": jar, "acr_values": ...}``, ``request`` plus
+``request_uri``, an endpoint query holding signed-parameter names) now raise;
+move the parameter into ``signed_request_object(...)`` or use
+``begin(request_object_key=..., acr_values=...)``:
 
 .. code-block:: python
 

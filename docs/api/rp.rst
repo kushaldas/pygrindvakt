@@ -274,7 +274,9 @@ Starting the flow
    attached (``extra`` holds ``request`` or ``request_uri``): move them into
    the signed request object and remove them from the endpoint. Other
    endpoint query pairs are not checked and stay the caller's responsibility.
-   Matching is exact and case-sensitive, and covers only the parameters this
+   Matching is case-insensitive and ignores surrounding whitespace in
+   names (``Request``, ``request_uri `` and ``MAX_AGE`` count; errors echo
+   the original spelling), and covers only the parameters this
    binding signs: ``claims_locales``, ``login_hint``, ``id_token_hint`` and
    ``display`` are not checked, so keep them out of the unsigned query
    yourself if you signed them.
@@ -329,7 +331,8 @@ Starting the flow
    signed request object. Other endpoint query pairs (for example
    ``tenant=a``) are kept and not checked: they are the caller's
    responsibility. Without a request object the endpoint is used as is.
-   The list is exact and case-sensitive and covers only the parameters this
+   Names are matched case-insensitively with surrounding whitespace trimmed
+   (errors echo the original spelling). The list covers only the parameters this
    binding signs: ``claims_locales``, ``login_hint``, ``id_token_hint`` and
    ``display`` are not checked, so keep them out of the unsigned query
    yourself if you signed them.

@@ -712,16 +712,24 @@ fn extra_params(extra: Option<&Bound<'_, PyAny>>) -> PyResult<Vec<(String, Strin
     }
 }
 
-/// Keys that, when sent in the query next to a request object, would give an
-/// OP an unsigned (weaker) copy of a parameter the signed object carries.
+/// Normalize a parameter name for guard comparisons: an OP may trim and
+/// case-fold names before consuming them, so the guards must too. Error
+/// messages still echo the original spelling.
+fn norm_key(k: &str) -> String {
+    k.trim().to_ascii_lowercase()
+}
+
+/// Keys (lowercase; compare via `norm_key`) that, when sent in the query next
+/// to a request object, would give an OP an unsigned (weaker) copy of a
+/// parameter the signed object carries.
 const JAR_ONLY_KEYS: &[&str] = &[
     "claims",
     "prompt",
     "ui_locales",
     "acr_values",
     "max_age",
-    "signRequest",
-    "https://id.oidc.se/param/signRequest",
+    "signrequest",
+    "https://id.oidc.se/param/signrequest",
 ];
 
 /// True when `extra` itself carries a request object (`request` or
@@ -729,15 +737,15 @@ const JAR_ONLY_KEYS: &[&str] = &[
 fn extra_has_request_object(extra: &[(String, String)]) -> bool {
     extra
         .iter()
-        .any(|(k, _)| k == "request" || k == "request_uri")
+        .any(|(k, _)| matches!(norm_key(k).as_str(), "request" | "request_uri"))
 }
 
 /// RFC 9101 section 3 / RFC 9126 section 3: at most one request object per
 /// request, and no unsigned copies of signed parameters next to it.
 /// `has_request_key` is true when `begin` signs one from `request_object_key`.
 fn reject_unsigned_jar_copies(extra: &[(String, String)], has_request_key: bool) -> PyResult<()> {
-    let has_request = extra.iter().any(|(k, _)| k == "request");
-    let has_request_uri = extra.iter().any(|(k, _)| k == "request_uri");
+    let has_request = extra.iter().any(|(k, _)| norm_key(k) == "request");
+    let has_request_uri = extra.iter().any(|(k, _)| norm_key(k) == "request_uri");
     if has_request_key && (has_request || has_request_uri) {
         return Err(PyValueError::new_err(
             "extra must not carry request/request_uri when request_object_key is set: \
@@ -765,7 +773,7 @@ fn reject_endpoint_jar_keys(endpoint: &str) -> PyResult<()> {
     let query = query.split('#').next().unwrap_or("");
     let mut bad: Vec<String> = Vec::new();
     for (k, _) in url::form_urlencoded::parse(query.as_bytes()) {
-        if JAR_ONLY_KEYS.contains(&k.as_ref()) && !bad.iter().any(|b| b == k.as_ref()) {
+        if JAR_ONLY_KEYS.contains(&norm_key(&k).as_str()) && !bad.iter().any(|b| b == k.as_ref()) {
             bad.push(k.into_owned());
         }
     }
@@ -784,7 +792,7 @@ fn reject_endpoint_jar_keys(endpoint: &str) -> PyResult<()> {
 fn reject_jar_only_keys(extra: &[(String, String)]) -> PyResult<()> {
     let mut bad: Vec<&str> = Vec::new();
     for (k, _) in extra {
-        if JAR_ONLY_KEYS.contains(&k.as_str()) && !bad.contains(&k.as_str()) {
+        if JAR_ONLY_KEYS.contains(&norm_key(k).as_str()) && !bad.contains(&k.as_str()) {
             bad.push(k.as_str());
         }
     }
@@ -986,7 +994,9 @@ fn minimal_jar_query(url: &str, endpoint: &str) -> String {
     } else if query == own || query.starts_with(&format!("{own}&")) {
         own.split('&').count()
     } else {
-        0
+        // Prefix assumption violated: fail safe. Trimming without knowing
+        // which pairs are the endpoint's own could drop operator parameters.
+        return url.to_string();
     };
     let kept: Vec<&str> = query
         .split('&')

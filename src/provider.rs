@@ -767,12 +767,15 @@ impl Provider {
         expiry: u64,
     ) -> PyResult<()> {
         if expiry > grindvakt::util::now_secs().saturating_add(REQUEST_ID_MAX_TTL) {
+            // Bound detail stays in the log: the description reaches end users.
+            tracing::debug!(
+                max_ttl_secs = REQUEST_ID_MAX_TTL,
+                "refusing request id with over-bound expiry"
+            );
             return Err(
                 match build_oauth_error(
                     "invalid_request",
-                    Some(format!(
-                        "request object expires more than {REQUEST_ID_MAX_TTL} s ahead"
-                    )),
+                    Some("invalid request object".to_string()),
                     None,
                 ) {
                     Ok(e) => oauth_err(py, &e),

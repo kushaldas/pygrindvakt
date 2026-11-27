@@ -283,7 +283,8 @@ def begin(
     ``signRequest`` or ``https://id.oidc.se/param/signRequest``:
     ``ValueError`` naming the keys, because an OP could apply the unsigned
     copy (RFC 9101 section 3). Put them in the signed object only. The list
-    is exact and case-sensitive and covers only the parameters this binding
+    is matched case-insensitively with surrounding whitespace trimmed (an OP
+    may fold names too; the error echoes your spelling) and covers only the parameters this binding
     signs: ``claims_locales``, ``login_hint``, ``id_token_hint`` and
     ``display`` are not checked, so keep them out of the unsigned query
     yourself if you signed them. A provider ``authorization_endpoint`` whose
