@@ -3953,3 +3953,408 @@ def test_compat_provider_info_without_metadata():
         rp.check_rp_compatibility(hand)
     with pytest.raises(TypeError):
         rp.check_rp_compatibility({"issuer": ISSUER})  # type: ignore[arg-type]
+
+
+# --- signed_request_object optional parameters ----------------------------------
+
+
+def _jar_claims(prov, rpc, rp_key, **kw):
+    jar = rp.signed_request_object(prov, rpc, rp_key, "st", "n", **kw)
+    v = jwt.Validation().with_issuer(CLIENT_ID).with_audience(ISSUER)
+    return jwt.verify_with_jwks(rp_key.to_public_jwks(), jar, v)
+
+
+def test_signed_request_object_defaults_omit_optional_params(prov, rpc, rp_key):
+    claims = _jar_claims(prov, rpc, rp_key)
+    for name in ("claims", "prompt", "ui_locales", "acr_values", "max_age"):
+        assert name not in claims
+    assert "https://id.oidc.se/param/signRequest" not in claims
+
+
+def test_signed_request_object_string_params_signed(prov, rpc, rp_key):
+    claims = _jar_claims(prov, rpc, rp_key, prompt="login consent", ui_locales="sv en", acr_values="urn:a urn:b")
+    assert claims["prompt"] == "login consent"
+    assert claims["ui_locales"] == "sv en"
+    assert claims["acr_values"] == "urn:a urn:b"
+    assert claims["state"] == "st"
+
+
+def test_signed_request_object_max_age_is_number(prov, rpc, rp_key):
+    claims = _jar_claims(prov, rpc, rp_key, max_age=0)
+    assert claims["max_age"] == 0
+    assert not isinstance(claims["max_age"], bool)
+
+
+def test_signed_request_object_claims_keep_json_types(prov, rpc, rp_key):
+    wanted = {"id_token": {"acr": {"essential": True, "values": ["urn:a"]}, "auth_time": None}}
+    claims = _jar_claims(prov, rpc, rp_key, claims=wanted)
+    assert claims["claims"] == wanted
+
+
+def test_signed_request_object_sign_request_signed(prov, rpc, rp_key):
+    sr = {"displayName": {"sv": "Avtal", "en": "Contract"}, "signMessage": {"mimeType": "text"}, "n": 3}
+    claims = _jar_claims(prov, rpc, rp_key, sign_request=sr)
+    assert claims["https://id.oidc.se/param/signRequest"] == sr
+
+
+@pytest.mark.parametrize("kw", ["claims", "sign_request"])
+@pytest.mark.parametrize("bad", ["text", ["a"], 1])
+def test_signed_request_object_rejects_non_object(prov, rpc, rp_key, kw, bad):
+    with pytest.raises(TypeError):
+        rp.signed_request_object(prov, rpc, rp_key, "st", "n", **{kw: bad})
+
+
+# --- begin(request_object_key=...) signed parameters ----------------------------
+
+
+def _begin_jar(prov, rpc, rp_key, **kw):
+    res = rp.begin(prov, rpc, request_object_key=rp_key, **kw)
+    q = parse_qs(urlsplit(res.url).query)
+    v = jwt.Validation().with_issuer(CLIENT_ID).with_audience(ISSUER)
+    return res, q, jwt.verify_with_jwks(rp_key.to_public_jwks(), q["request"][0], v)
+
+
+def test_begin_signed_params_in_jar_only(prov, rpc, rp_key):
+    wanted = {"id_token": {"acr": {"essential": True, "values": ["urn:a"]}, "auth_time": None}}
+    sr = {"displayName": {"sv": "Avtal"}, "n": 3}
+    res, q, claims = _begin_jar(
+        prov,
+        rpc,
+        rp_key,
+        claims=wanted,
+        prompt="login consent",
+        ui_locales="sv en",
+        acr_values="urn:a urn:b",
+        max_age=0,
+        sign_request=sr,
+    )
+    assert set(q) == {"client_id", "response_type", "request"}
+    assert q["client_id"] == [CLIENT_ID]
+    assert q["response_type"] == ["code"]
+    assert claims["claims"] == wanted
+    assert claims["prompt"] == "login consent"
+    assert claims["ui_locales"] == "sv en"
+    assert claims["acr_values"] == "urn:a urn:b"
+    assert claims["max_age"] == 0
+    assert not isinstance(claims["max_age"], bool)
+    assert claims["https://id.oidc.se/param/signRequest"] == sr
+    assert claims["state"] == res.state
+    assert claims["nonce"] == res.nonce
+    assert claims["code_challenge"] == pkce.s256_challenge(res.code_verifier)
+    assert claims["code_challenge_method"] == "S256"
+
+
+def test_begin_signed_params_keep_extra(prov, rpc, rp_key):
+    _, q, _ = _begin_jar(prov, rpc, rp_key, prompt="login", extra={"ui_hint": "x"})
+    assert set(q) == {"client_id", "response_type", "request", "ui_hint"}
+
+
+def test_begin_signed_params_without_pkce(prov, rpc, rp_key):
+    res, q, claims = _begin_jar(prov, rpc, rp_key, pkce=False, acr_values="urn:a")
+    assert res.code_verifier is None
+    assert "code_challenge" not in claims
+    assert set(q) == {"client_id", "response_type", "request"}
+
+
+def test_begin_request_object_without_params_keeps_full_query(prov, rpc, rp_key):
+    _, q, claims = _begin_jar(prov, rpc, rp_key)
+    assert {"redirect_uri", "scope", "state", "nonce", "code_challenge", "request"} <= set(q)
+    for name in ("claims", "prompt", "ui_locales", "acr_values", "max_age"):
+        assert name not in claims
+
+
+@pytest.mark.parametrize("kw", ["claims", "sign_request"])
+@pytest.mark.parametrize("bad", ["text", ["a"], 1])
+def test_begin_rejects_non_object(prov, rpc, rp_key, kw, bad):
+    with pytest.raises(TypeError):
+        rp.begin(prov, rpc, request_object_key=rp_key, **{kw: bad})
+
+
+def test_begin_rejects_negative_max_age(prov, rpc, rp_key):
+    with pytest.raises(OverflowError):
+        rp.begin(prov, rpc, request_object_key=rp_key, max_age=-1)
+
+
+@pytest.mark.parametrize(
+    "kw",
+    [
+        {"claims": {"id_token": {}}},
+        {"prompt": "login"},
+        {"ui_locales": "sv"},
+        {"acr_values": "urn:a"},
+        {"max_age": 0},
+        {"sign_request": {"a": 1}},
+    ],
+)
+def test_begin_signed_params_need_request_object_key(prov, rpc, kw):
+    with pytest.raises(ValueError, match="request_object_key"):
+        rp.begin(prov, rpc, **kw)
+
+
+# --- extra must not repeat signed request-object parameters ---------------------
+
+_JAR_KEYS = [
+    "claims",
+    "prompt",
+    "ui_locales",
+    "acr_values",
+    "max_age",
+    "signRequest",
+    "https://id.oidc.se/param/signRequest",
+]
+
+
+@pytest.mark.parametrize("key", _JAR_KEYS)
+@pytest.mark.parametrize("ref", ["request", "request_uri"])
+def test_authorization_url_refuses_unsigned_copy_with_request(prov, rpc, key, ref):
+    with pytest.raises(ValueError, match="RFC 9101") as ei:
+        rp.authorization_url(prov, rpc, "st", "n", extra={ref: "x", key: "x"})
+    assert key in str(ei.value)
+
+
+@pytest.mark.parametrize("key", _JAR_KEYS)
+def test_authorization_url_accepts_keys_without_request(prov, rpc, key):
+    url = rp.authorization_url(prov, rpc, "st", "n", extra={key: "x"})
+    assert parse_qs(urlsplit(url).query)[key] == ["x"]
+
+
+def test_authorization_url_request_with_unrelated_extra_ok(prov, rpc, rp_key):
+    jar = rp.signed_request_object(prov, rpc, rp_key, "st", "n")
+    url = rp.authorization_url(prov, rpc, "st", "n", extra=[("request", jar), ("ui_hint", "x")])
+    q = parse_qs(urlsplit(url).query)
+    assert q["request"] == [jar]
+    assert q["ui_hint"] == ["x"]
+
+
+def test_authorization_url_names_all_offending_keys(prov, rpc):
+    with pytest.raises(ValueError) as ei:
+        rp.authorization_url(prov, rpc, "st", "n", extra=[("request", "j"), ("max_age", "0"), ("prompt", "none")])
+    assert "max_age" in str(ei.value) and "prompt" in str(ei.value)
+
+
+@pytest.mark.parametrize("key", _JAR_KEYS)
+def test_begin_refuses_extra_key_with_request_object(prov, rpc, rp_key, key):
+    with pytest.raises(ValueError) as ei:
+        rp.begin(prov, rpc, request_object_key=rp_key, extra={key: "0"})
+    assert key in str(ei.value)
+
+
+def test_begin_refuses_extra_max_age_with_request_object(prov, rpc, rp_key):
+    with pytest.raises(ValueError, match="max_age"):
+        rp.begin(prov, rpc, request_object_key=rp_key, extra={"max_age": "0"})
+
+
+def test_begin_refuses_duplicate_of_jar_argument(prov, rpc, rp_key):
+    with pytest.raises(ValueError, match="acr_values"):
+        rp.begin(
+            prov,
+            rpc,
+            request_object_key=rp_key,
+            acr_values="urn:a",
+            extra={"acr_values": "urn:weak"},
+        )
+
+
+@pytest.mark.parametrize("key", _JAR_KEYS)
+def test_begin_without_request_object_keeps_extra(prov, rpc, key):
+    res = rp.begin(prov, rpc, extra={key: "x"})
+    assert parse_qs(urlsplit(res.url).query)[key] == ["x"]
+
+
+def test_begin_request_uri_extra_refuses_keys(prov, rpc):
+    with pytest.raises(ValueError, match="prompt"):
+        rp.begin(prov, rpc, extra={"request_uri": "https://rp/r", "prompt": "none"})
+
+
+def test_begin_unrelated_extra_with_request_object_ok(prov, rpc, rp_key):
+    _, q, _ = _begin_jar(prov, rpc, rp_key, extra={"ui_hint": "x"})
+    assert q["ui_hint"] == ["x"]
+
+
+@pytest.mark.parametrize("key", _JAR_KEYS)
+def test_begin_refuses_extra_request_with_jar_key(prov, rpc, key):
+    with pytest.raises(ValueError, match="RFC 9101") as ei:
+        rp.begin(prov, rpc, extra={"request": "jar", key: "0"})
+    assert key in str(ei.value)
+
+
+@pytest.mark.parametrize("ref", ["request", "request_uri"])
+def test_begin_request_object_key_refuses_second_request_object(prov, rpc, rp_key, ref):
+    with pytest.raises(ValueError, match="two request objects"):
+        rp.begin(prov, rpc, request_object_key=rp_key, prompt="login", extra={ref: "https://attacker.example/jar"})
+
+
+def test_authorization_url_refuses_request_and_request_uri(prov, rpc):
+    with pytest.raises(ValueError, match="both request and request_uri"):
+        rp.authorization_url(prov, rpc, "st", "n", extra={"request": "J1", "request_uri": "https://evil.example/jar"})
+
+
+def test_begin_refuses_request_and_request_uri_without_key(prov, rpc):
+    with pytest.raises(ValueError, match="both request and request_uri"):
+        rp.begin(prov, rpc, extra={"request": "J1", "request_uri": "https://evil.example/jar"})
+
+
+@pytest.mark.parametrize("ref", ["request", "request_uri"])
+def test_authorization_url_single_request_object_accepted(prov, rpc, ref):
+    url = rp.authorization_url(prov, rpc, "st", "n", extra={ref: "x"})
+    assert parse_qs(urlsplit(url).query)[ref] == ["x"]
+
+
+def test_begin_request_object_key_alone_unchanged(prov, rpc, rp_key):
+    _, q, _ = _begin_jar(prov, rpc, rp_key)
+    assert "request_uri" not in q and len(q["request"]) == 1
+
+
+@pytest.mark.parametrize("key", _JAR_KEYS)
+def test_begin_accepts_jar_key_without_request_marker(prov, rpc, key):
+    res = rp.begin(prov, rpc, extra={"x": "1", key: "0"})
+    assert parse_qs(urlsplit(res.url).query)[key] == ["0"]
+
+
+@pytest.mark.parametrize("endpoint", [f"{ISSUER}/authorize?foo=1", f"{ISSUER}/authorize?tenant=a&foo=1&bar=%20x"])
+def test_begin_trimmed_query_keeps_endpoint_pairs(rpc, rp_key, endpoint):
+    p = rp.ProviderInfo(ISSUER, endpoint, f"{ISSUER}/token")
+    res = rp.begin(p, rpc, request_object_key=rp_key, prompt="login")
+    query = urlsplit(res.url).query
+    own = endpoint.split("?", 1)[1]
+    assert query.startswith(own + "&")
+    pairs = [kv.split("=")[0] for kv in query[len(own) + 1 :].split("&")]
+    assert sorted(pairs) == ["client_id", "request", "response_type"]
+
+
+@pytest.mark.parametrize("name", ["scope", "state", "nonce", "redirect_uri"])
+def test_begin_endpoint_with_library_param_refused_by_core(rpc, rp_key, name):
+    with pytest.raises(ConfigError, match="library-controlled"):
+        p = rp.ProviderInfo(ISSUER, f"{ISSUER}/authorize?{name}=x", f"{ISSUER}/token")
+        rp.begin(p, rpc, request_object_key=rp_key, prompt="login")
+
+
+@pytest.mark.parametrize("key", _JAR_KEYS)
+def test_begin_endpoint_with_jar_only_key_refused(rpc, rp_key, key):
+    from urllib.parse import quote
+
+    p = rp.ProviderInfo(ISSUER, f"{ISSUER}/authorize?{quote(key, safe='')}=x", f"{ISSUER}/token")
+    with pytest.raises(ConfigError, match="authorization_endpoint") as ei:
+        rp.begin(p, rpc, request_object_key=rp_key)
+    assert key in str(ei.value)
+
+
+def test_begin_endpoint_poc_names_both_keys(rpc, rp_key):
+    p = rp.ProviderInfo(ISSUER, f"{ISSUER}/authorize?prompt=none&acr_values=loa1", f"{ISSUER}/token")
+    with pytest.raises(ConfigError) as ei:
+        rp.begin(p, rpc, request_object_key=rp_key, prompt="login", acr_values="urn:loa3")
+    assert "prompt" in str(ei.value) and "acr_values" in str(ei.value)
+
+
+@pytest.mark.parametrize("key", _JAR_KEYS)
+def test_begin_endpoint_with_jar_only_key_refused_for_extra_request(rpc, key):
+    from urllib.parse import quote
+
+    p = rp.ProviderInfo(ISSUER, f"{ISSUER}/authorize?{quote(key, safe='')}=x", f"{ISSUER}/token")
+    with pytest.raises(ConfigError, match="authorization_endpoint"):
+        rp.begin(p, rpc, extra={"request": "a.b.c"})
+
+
+@pytest.mark.parametrize("key", _JAR_KEYS)
+def test_authorization_url_endpoint_with_jar_only_key_refused_with_request(rpc, key):
+    from urllib.parse import quote
+
+    p = rp.ProviderInfo(ISSUER, f"{ISSUER}/authorize?{quote(key, safe='')}=x", f"{ISSUER}/token")
+    for extra in ({"request": "a.b.c"}, {"request_uri": "urn:x:1"}):
+        with pytest.raises(ConfigError, match="authorization_endpoint"):
+            rp.authorization_url(p, rpc, "s", "n", extra=extra)
+
+
+def test_endpoint_with_jar_only_key_accepted_without_request_object(rpc):
+    p = rp.ProviderInfo(ISSUER, f"{ISSUER}/authorize?prompt=none&acr_values=loa1", f"{ISSUER}/token")
+    q = parse_qs(urlsplit(rp.begin(p, rpc).url).query)
+    assert q["prompt"] == ["none"] and q["acr_values"] == ["loa1"]
+    q = parse_qs(urlsplit(rp.authorization_url(p, rpc, "s", "n")).query)
+    assert q["prompt"] == ["none"] and q["acr_values"] == ["loa1"]
+
+
+@pytest.mark.parametrize("ref", ["Request", "REQUEST_URI", "request "])
+@pytest.mark.parametrize("fn", ["authorization_url", "begin"])
+def test_jar_detection_normalizes_request_name(prov, rpc, ref, fn):
+    extra = {ref: "x", "prompt": "none"}
+    with pytest.raises(ValueError, match="RFC 9101") as ei:
+        if fn == "begin":
+            rp.begin(prov, rpc, extra=extra)
+        else:
+            rp.authorization_url(prov, rpc, "st", "n", extra=extra)
+    assert "prompt" in str(ei.value)
+
+
+@pytest.mark.parametrize("key", ["MAX_AGE", "Acr_Values", " prompt"])
+@pytest.mark.parametrize("fn", ["authorization_url", "begin"])
+def test_jar_only_key_matching_normalized_echoes_original(prov, rpc, key, fn):
+    extra = {"request": "x", key: "0"}
+    with pytest.raises(ValueError, match="RFC 9101") as ei:
+        if fn == "begin":
+            rp.begin(prov, rpc, extra=extra)
+        else:
+            rp.authorization_url(prov, rpc, "st", "n", extra=extra)
+    assert key in str(ei.value)
+
+
+def test_endpoint_uppercase_jar_key_refused_with_request_object(rpc):
+    p = rp.ProviderInfo(ISSUER, f"{ISSUER}/authorize?PROMPT=none", f"{ISSUER}/token")
+    with pytest.raises(ConfigError, match="PROMPT"):
+        rp.begin(p, rpc, extra={"request": "a.b.c"})
+
+
+_DUP_OBJECTS = [
+    ("request", "request"),
+    ("request", "Request"),
+    ("request_uri", "REQUEST_URI"),
+    ("request", "request_uri"),
+    (" request", "request"),
+]
+
+
+@pytest.mark.parametrize("names", _DUP_OBJECTS)
+def test_begin_refuses_repeated_request_object_without_key(prov, rpc, names):
+    extra = [(names[0], "jar1"), (names[1], "jar2")]
+    with pytest.raises(ValueError, match="RFC 9101"):
+        rp.begin(prov, rpc, extra=extra)
+
+
+@pytest.mark.parametrize("names", _DUP_OBJECTS)
+def test_authorization_url_refuses_repeated_request_object(prov, rpc, names):
+    extra = [(names[0], "jar1"), (names[1], "jar2")]
+    with pytest.raises(ValueError, match="RFC 9101"):
+        rp.authorization_url(prov, rpc, "st", "n", extra=extra)
+
+
+def test_repeated_request_object_message_echoes_spellings(prov, rpc):
+    with pytest.raises(ValueError, match="more than one request object") as ei:
+        rp.begin(prov, rpc, extra=[("request", "a"), (" Request", "b")])
+    assert "request" in str(ei.value) and " Request" in str(ei.value)
+
+
+@pytest.mark.parametrize("ref", ["request", "request_uri"])
+def test_single_request_object_in_pair_list_accepted(prov, rpc, ref):
+    assert rp.begin(prov, rpc, extra=[(ref, "x")]).url
+    assert rp.authorization_url(prov, rpc, "st", "n", extra=[(ref, "x")])
+
+
+@pytest.mark.parametrize("query", ["request_uri=urn:other", "Request=x", "%20request_uri%20=urn%3Aother"])
+def test_begin_endpoint_with_request_object_refused_with_key(rpc, rp_key, query):
+    p = rp.ProviderInfo(ISSUER, f"{ISSUER}/authorize?{query}", f"{ISSUER}/token")
+    with pytest.raises(ConfigError, match="authorization_endpoint"):
+        rp.begin(p, rpc, request_object_key=rp_key, prompt="login")
+
+
+@pytest.mark.parametrize("query", ["request_uri=urn:other", "Request=x"])
+def test_endpoint_with_request_object_refused_with_extra_request(rpc, query):
+    p = rp.ProviderInfo(ISSUER, f"{ISSUER}/authorize?{query}", f"{ISSUER}/token")
+    with pytest.raises(ConfigError, match="authorization_endpoint"):
+        rp.authorization_url(p, rpc, "s", "n", extra={"request": "jar"})
+    with pytest.raises(ConfigError, match="authorization_endpoint"):
+        rp.begin(p, rpc, extra={"request": "jar"})
+
+
+def test_endpoint_with_request_uri_accepted_without_other_object(rpc):
+    p = rp.ProviderInfo(ISSUER, f"{ISSUER}/authorize?request_uri=urn:other", f"{ISSUER}/token")
+    assert parse_qs(urlsplit(rp.begin(p, rpc).url).query)["request_uri"] == ["urn:other"]
+    assert parse_qs(urlsplit(rp.authorization_url(p, rpc, "s", "n")).query)["request_uri"] == ["urn:other"]

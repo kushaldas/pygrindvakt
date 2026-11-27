@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyModule;
 
@@ -33,6 +33,11 @@ use crate::metadata::ProviderMetadata;
 use crate::request::AuthorizationRequest;
 use crate::tokens::TokenCodec;
 
+/// Longest request-object lifetime `consume_request_id` accepts, in seconds.
+/// Core keeps the replay marker until `expiry` with no clamp, so a far-future
+/// `expiry` would pin a permanent entry in the shared token-use store.
+const REQUEST_ID_MAX_TTL: u64 = 900;
+
 const RESERVED_ID_TOKEN_CLAIMS: &[&str] = &[
     "iss",
     "sub",
@@ -48,6 +53,58 @@ const RESERVED_ID_TOKEN_CLAIMS: &[&str] = &[
     "at_hash",
     "c_hash",
 ];
+
+/// Per-destination claim release decisions for
+/// `Provider.authorization_redirect_with_authorized_claims`.
+#[pyclass(module = "pygrindvakt.provider", name = "AuthorizedClaims", frozen)]
+pub struct AuthorizedClaims {
+    id_token: BTreeMap<String, serde_json::Value>,
+    userinfo: BTreeMap<String, serde_json::Value>,
+}
+
+fn claim_map(obj: &Bound<'_, PyAny>, what: &str) -> PyResult<BTreeMap<String, serde_json::Value>> {
+    if obj.is_none() {
+        return Err(PyTypeError::new_err(format!(
+            "{what} must be a dict, not None"
+        )));
+    }
+    let map: BTreeMap<String, serde_json::Value> = from_py(obj)?;
+    let reserved: Vec<&String> = map
+        .keys()
+        .filter(|k| RESERVED_ID_TOKEN_CLAIMS.contains(&k.as_str()))
+        .collect();
+    if !reserved.is_empty() {
+        return Err(PyValueError::new_err(format!(
+            "{what} must not contain reserved id_token claim(s): {reserved:?}"
+        )));
+    }
+    Ok(map)
+}
+
+#[pymethods]
+impl AuthorizedClaims {
+    #[new]
+    #[pyo3(signature = (*, id_token, userinfo))]
+    fn new(id_token: &Bound<'_, PyAny>, userinfo: &Bound<'_, PyAny>) -> PyResult<Self> {
+        Ok(Self {
+            id_token: claim_map(id_token, "id_token")?,
+            userinfo: claim_map(userinfo, "userinfo")?,
+        })
+    }
+    #[getter]
+    fn id_token<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        to_py(py, &self.id_token)
+    }
+    #[getter]
+    fn userinfo<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        to_py(py, &self.userinfo)
+    }
+    fn __repr__(&self) -> String {
+        let id: Vec<&String> = self.id_token.keys().collect();
+        let ui: Vec<&String> = self.userinfo.keys().collect();
+        format!("AuthorizedClaims(id_token={id:?}, userinfo={ui:?})")
+    }
+}
 
 // ---------------------------------------------------------------------------
 // TokenLifetimes / TokenResponse
@@ -506,6 +563,9 @@ impl Provider {
     /// carries `iss` too; `OAuthError.to_redirect` never adds it. With that
     /// flag on, a query-mode response whose registered `redirect_uri` already
     /// has an `iss` query parameter raises `OAuthError(server_error)`.
+    ///
+    /// For separate ID token and UserInfo release, use
+    /// `authorization_redirect_with_authorized_claims`.
     #[pyo3(signature = (request, sub, external_claims = None, acr = None, extra_claims = None))]
     fn authorization_redirect(
         &self,
@@ -536,6 +596,54 @@ impl Provider {
         let result = crate::runtime::block_on(py, async move {
             p.authorization_redirect_with_claims(&request, sub, &external_claims, acr, &extra)
                 .await
+        })?;
+        result.map(Response::wrap).map_err(|e| oauth_err(py, &e))
+    }
+
+    /// Like `authorization_redirect`, but with separate ID token and UserInfo
+    /// release decisions in `claims` (an `AuthorizedClaims`). `sub` must be a
+    /// public subject: pairwise clients raise `OAuthError(unauthorized_client)`.
+    ///
+    /// No scope filter is applied: the caller decides what each destination
+    /// receives. The registration fingerprint is sealed into the code, so
+    /// redemption and refresh detect a changed registration.
+    #[pyo3(signature = (request, sub, claims, *, acr = None, auth_time = None))]
+    fn authorization_redirect_with_authorized_claims(
+        &self,
+        py: Python<'_>,
+        request: &AuthorizationRequest,
+        sub: &str,
+        claims: &AuthorizedClaims,
+        acr: Option<String>,
+        auth_time: Option<u64>,
+    ) -> PyResult<Response> {
+        check_redirect_target(py, request)?;
+        let p = self.inner.clone();
+        let req = request.inner.clone();
+        let sub = sub.to_owned();
+        let authorized = gp::AuthorizedClaims {
+            id_token: claims.id_token.clone(),
+            userinfo: claims.userinfo.clone(),
+        };
+        let result = crate::runtime::block_on(py, async move {
+            let state = req.state.clone();
+            p.authorization_redirect_with_authorized_claims(
+                &req,
+                |client| {
+                    if client.subject_type != "public" {
+                        return Err(grindvakt::OAuthError::new(
+                            grindvakt::OAuthErrorCode::UnauthorizedClient,
+                            "pairwise subjects require an issuance-time subject resolver",
+                        )
+                        .with_state(state));
+                    }
+                    Ok(sub)
+                },
+                authorized,
+                acr,
+                auth_time,
+            )
+            .await
         })?;
         result.map(Response::wrap).map_err(|e| oauth_err(py, &e))
     }
@@ -621,6 +729,67 @@ impl Provider {
         to_py(py, &v)
     }
 
+    /// Handle a UserInfo request and return the response as a signed JWT.
+    ///
+    /// Same checks as `userinfo`. The compact JWS has `typ` `userinfo+jwt`,
+    /// `iss`, `aud` = client_id and `exp` = min(access token exp, now + 300).
+    /// A client registered with `userinfo_encrypted_response_alg` receives a
+    /// compact JWE instead. Serve it with `content-type: application/jwt`.
+    #[pyo3(signature = (access_token, presented_jkt = None))]
+    fn signed_userinfo(
+        &self,
+        py: Python<'_>,
+        access_token: String,
+        presented_jkt: Option<String>,
+    ) -> PyResult<String> {
+        let p = self.inner.clone();
+        let r = crate::runtime::block_on(py, async move {
+            p.signed_userinfo(&access_token, presented_jkt.as_deref())
+                .await
+        })?;
+        r.map_err(|e| oauth_err(py, &e))
+    }
+
+    /// Record a verified request object `jti` for one-time use by `client_id`.
+    ///
+    /// Call after verifying the request object's signature and binding it to
+    /// the client. `expiry` is the acceptance deadline in Unix seconds. Returns
+    /// `None`; raises `OAuthError`: `invalid_request` for an empty or
+    /// over-512-byte `jti`, an `expiry` not in the future or more than 900 s
+    /// ahead (refused, nothing recorded), `invalid_grant` on reuse,
+    /// `server_error` on store failure. Replicas need a shared
+    /// `token_use_store`.
+    fn consume_request_id(
+        &self,
+        py: Python<'_>,
+        client_id: String,
+        jti: String,
+        expiry: u64,
+    ) -> PyResult<()> {
+        if expiry > grindvakt::util::now_secs().saturating_add(REQUEST_ID_MAX_TTL) {
+            // Bound detail stays in the log: the description reaches end users.
+            tracing::debug!(
+                max_ttl_secs = REQUEST_ID_MAX_TTL,
+                "refusing request id with over-bound expiry"
+            );
+            return Err(
+                match build_oauth_error(
+                    "invalid_request",
+                    Some("invalid request object".to_string()),
+                    None,
+                ) {
+                    Ok(e) => oauth_err(py, &e),
+                    Err(e) => e,
+                },
+            );
+        }
+        let p = self.inner.clone();
+        let r = crate::runtime::block_on(py, async move {
+            p.consume_request_id(&client_id, &jti, expiry).await
+        })?;
+        r.map_err(|e| oauth_err(py, &e))
+    }
+
     /// Authenticate a client from a token-endpoint style request (form +
     /// `Authorization` header) and return the `Client`. Mappings are rejected;
     /// ordered form pairs preserve duplicate names for rejection.
@@ -659,6 +828,7 @@ fn flatten_claims<'py>(
 pub fn register(py: Python<'_>, parent: &Bound<'_, PyModule>) -> PyResult<()> {
     let m = new_submodule(py, parent, "provider")?;
     m.add_class::<TokenLifetimes>()?;
+    m.add_class::<AuthorizedClaims>()?;
     m.add_class::<TokenResponse>()?;
     m.add_class::<InMemoryTokenUseStore>()?;
     m.add_class::<RedisStore>()?;

@@ -32,6 +32,12 @@ The ``typ`` header values the federation JWTs must carry.
    :type: str
    :value: "jwk-set+jwt"
 
+.. py:data:: TRUST_MARK_TYP
+   :type: str
+   :value: "trust-mark+jwt"
+
+   .. versionadded:: 0.7.0
+
 Classes
 -------
 
@@ -123,8 +129,8 @@ Classes
       :type: list[Any]
 
       The raw ``trust_marks`` entries from the trust anchor's signed resolve
-      response (empty if absent). They are **not verified**: check the type,
-      subject, issuer signature and lifetime before trusting any entry.
+      response (empty if absent). They are **not verified**: pass them to
+      :func:`verify_trust_marks` before trusting any entry.
 
       .. versionadded:: 0.6.0
 
@@ -229,6 +235,51 @@ Entity statements: build, decode, verify
    ``jwks``, is rejected. A token signed with ``HS256`` / ``HS384`` /
    ``HS512`` or ``none`` is refused with ``AuthnError``
    (``code == "symmetric_algorithm"``), as in :func:`verify`.
+
+.. py:function:: verify_trust_marks(marks: list[Any], issuer_jwks: dict[str, Any], required_type: str, *, subject: str, issuer: str, require_exp: bool = True) -> list[EntityStatement]
+
+   Verify the trust marks of ``required_type`` among ``marks`` (typically
+   :attr:`ResolvedEntity.trust_marks`) and return every one that verifies.
+   Core only stores trust marks raw; this verification is implemented in the
+   binding.
+
+   ``issuer`` is mandatory (omitting it raises ``TypeError``): the entity id
+   of the trust mark issuer. ``issuer_jwks`` must be the verified keys of that
+   issuer. That equals the trust anchor only when the anchor issues the mark
+   itself; a mark issued by another entity needs that entity's own (verified)
+   keys.
+
+   .. warning::
+
+      Never pass the subject's own keys (for example
+      :attr:`ResolvedEntity.subject_jwks`) as ``issuer_jwks``: a mark
+      self-signed by its subject would verify. Pinning ``issuer`` to the
+      expected issuer rejects such a mark.
+
+   ``oct`` keys are dropped with a ``UserWarning``.
+
+   Entries whose ``trust_mark_type`` is not ``required_type``, and entries
+   that are not dicts, are ignored. Each remaining entry's ``trust_mark`` JWT
+   must have ``typ`` ``trust-mark+jwt``, a ``kid`` header (a mark without
+   one is rejected, so it cannot verify under an arbitrary key of a
+   mixed-trust ``issuer_jwks``), ``sub == subject``, ``iss == issuer``,
+   a valid signature, valid ``exp`` / ``nbf`` / ``iat`` (60 s
+   leeway; ``iat`` is required, OpenID Federation 1.0 section 7.1), an inner ``trust_mark_type`` equal to ``required_type`` and an
+   ``iss``. A ``delegation`` claim fails closed (delegation owner keys are
+   not supported). Entries that fail are skipped, including entries whose
+   ``alg`` is ``HS*`` or ``none``; a valid mark is still returned alongside
+   them.
+
+   ``exp`` is optional in the specification. ``require_exp=True`` (default)
+   is a deliberate fail-closed deviation that rejects marks without ``exp``;
+   pass ``False`` to accept them.
+
+   :raises AuthnError: ``code == "trust_mark_missing"`` if no entry of
+      ``required_type`` exists; ``"trust_mark_invalid"`` if entries exist but
+      none verifies; ``"symmetric_algorithm"`` if no entry verified and at
+      least one entry's ``alg`` is ``HS*`` or ``none``.
+
+   .. versionadded:: 0.7.0
 
 Networked: fetch, resolve, keys, collection
 -------------------------------------------

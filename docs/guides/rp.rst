@@ -203,6 +203,9 @@ a signed request object:
    url = rp.authorization_url(info, me, state, nonce, code_challenge=challenge,
                               extra={"prompt": "login", "acr_values": "urn:mfa"})
 
+Do not combine these with a request object: see the signed request object
+section below.
+
 The callback: exchange and verify
 ---------------------------------
 
@@ -624,7 +627,24 @@ OpenID Federation automatic registration, and some OPs by policy, require the
 authorization parameters to arrive as a signed JWT (RFC 9101).
 :func:`~pygrindvakt.rp.signed_request_object` builds one from the same
 inputs as ``authorization_url``; pass it as the ``request`` parameter
-alongside the plain parameters:
+(RFC 9101 section 3 says the query should carry only ``client_id``,
+``response_type`` and ``request``; the plain parameters that
+``authorization_url`` adds are not authoritative, so an OP must read the signed
+ones). The safe path is ``begin(request_object_key=..., ...)``: it signs the
+generated state, nonce and PKCE challenge together with the optional
+``claims``, ``prompt``, ``ui_locales``, ``acr_values``, ``max_age`` and
+``sign_request``, and then sends only ``client_id``, ``response_type`` and
+``request`` in the query (plus any ``extra``). ``authorization_url`` and
+``begin`` refuse ``extra`` entries named ``claims``, ``prompt``,
+``ui_locales``, ``acr_values``, ``max_age`` or ``signRequest`` when a request
+object is attached (``ValueError``): put them in the signed object only. The
+manual path below can leave
+the unsigned query and the signed object out of step. Names are matched
+case-insensitively with whitespace trimmed. Call shapes that worked in 0.6.0
+(``extra={"request": jar, "acr_values": ...}``, ``request`` plus
+``request_uri``, an endpoint query holding signed-parameter names) now raise;
+move the parameter into ``signed_request_object(...)`` or use
+``begin(request_object_key=..., acr_values=...)``:
 
 .. code-block:: python
 
@@ -632,7 +652,9 @@ alongside the plain parameters:
    url = rp.authorization_url(info, me, state, nonce, code_challenge=challenge, extra={"request": jar})
 
    # or, with generated state/nonce/verifier:
-   url, state, nonce, verifier = rp.begin(info, me, request_object_key=rp_key)
+   url, state, nonce, verifier = rp.begin(
+       info, me, request_object_key=rp_key, acr_values="urn:acr:2", max_age=300
+   )
 
 Using a custom HTTP client
 --------------------------

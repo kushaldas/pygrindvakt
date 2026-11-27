@@ -259,12 +259,41 @@ Starting the flow
    ``ValueError``. Library-controlled parameter names and ambiguous duplicate
    extension names are rejected; repeatable ``resource`` remains supported.
 
+   When ``extra`` carries ``request`` or ``request_uri`` (a request object),
+   it must not also carry ``claims``, ``prompt``, ``ui_locales``,
+   ``acr_values``, ``max_age``, ``signRequest`` or
+   ``https://id.oidc.se/param/signRequest``: :class:`ValueError` names the
+   offending keys. An OP could apply the unsigned query copy instead of the
+   signed one (RFC 9101 section 3); put them in the request object only.
+   ``extra`` must not carry both ``request`` and ``request_uri``:
+   :class:`ValueError` (RFC 9101 section 3; an OP's precedence between two
+   request objects is undefined). More than one ``request`` / ``request_uri``
+   entry in total (a repeated name, ``request`` plus ``Request``, or
+   ``request`` plus ``request_uri``) is a :class:`ValueError` too, because
+   an OP that folds names would see two request objects. Build ``extra`` from
+   configuration only.
+   Without a request object these are ordinary parameters and stay allowed.
+   The same names in the query of the provider's ``authorization_endpoint``
+   are refused with :class:`pygrindvakt.ConfigError` when a request object is
+   attached (``extra`` holds ``request`` or ``request_uri``): move them into
+   the signed request object and remove them from the endpoint. An endpoint
+   query carrying ``request`` or ``request_uri`` (any case) is refused the
+   same way whenever another request object is attached
+   (``request_object_key``, or ``request`` / ``request_uri`` in ``extra``).
+   Other endpoint query pairs are not checked and stay the caller's responsibility.
+   Matching is case-insensitive and ignores surrounding whitespace in
+   names (``Request``, ``request_uri `` and ``MAX_AGE`` count; errors echo
+   the original spelling), and covers only the parameters this
+   binding signs: ``claims_locales``, ``login_hint``, ``id_token_hint`` and
+   ``display`` are not checked, so keep them out of the unsigned query
+   yourself if you signed them.
+
    ``redirect_uri`` overrides the client's configured value for this call
    only. It must be an absolute URL without a fragment, else
    :class:`pygrindvakt.BadRequestError` is raised, and the same value must
    be passed to :func:`exchange_code`; keep it in the session.
 
-.. py:function:: begin(provider: ProviderInfo, client: RpClient, *, extra: dict[str, str] | list[tuple[str, str]] | None = None, redirect_uri: str | None = None, pkce: bool = True, request_object_key: SigningKey | None = None) -> BeginResult
+.. py:function:: begin(provider: ProviderInfo, client: RpClient, *, extra: dict[str, str] | list[tuple[str, str]] | None = None, redirect_uri: str | None = None, pkce: bool = True, request_object_key: SigningKey | None = None, claims: dict[str, Any] | None = None, prompt: str | None = None, ui_locales: str | None = None, acr_values: str | None = None, max_age: int | None = None, sign_request: dict[str, Any] | None = None) -> BeginResult
 
    Start an authorization-code flow: generate a fresh ``state`` and
    ``nonce`` (32 random bytes each, base64url) and a PKCE verifier (48
@@ -279,6 +308,49 @@ Starting the flow
    object (see :func:`signed_request_object`) is added as the ``request``
    parameter. ``extra`` and ``redirect_uri`` behave as in
    :func:`authorization_url`.
+
+   The keyword arguments ``claims``, ``prompt``, ``ui_locales``,
+   ``acr_values``, ``max_age`` and ``sign_request`` take the same values as
+   for :func:`signed_request_object` (``TypeError`` for a non-dict ``claims``
+   or ``sign_request``, ``OverflowError`` for a negative ``max_age``) and
+   need ``request_object_key`` (``ValueError`` otherwise). They are signed
+   into the request object only, together with the generated ``state``,
+   ``nonce`` and PKCE challenge. When any is given, the query is reduced to the
+   RFC 9101 section 3 minimum: ``client_id``, ``response_type`` and
+   ``request``, plus any ``extra`` entries and parameters already on the
+   authorization endpoint (``redirect_uri``, ``scope``, ``state``, ``nonce``
+   and the challenge move into the signed object). Without these arguments the
+   query is unchanged. This is the safe one-call path.
+
+   ``extra`` must not carry ``request`` or ``request_uri`` together with
+   ``request_object_key``, nor both ``request`` and ``request_uri``: these
+   would send two request objects (RFC 9101 section 3, RFC 9126 section 3)
+   and raise :class:`ValueError`; so does more than one ``request`` /
+   ``request_uri`` entry in ``extra`` (names trimmed and lowercased first).
+   An ``authorization_endpoint`` query carrying ``request`` or
+   ``request_uri`` is refused with :class:`pygrindvakt.ConfigError` when any
+   of these objects is attached.
+
+   With a request object attached (``request_object_key``, or ``request`` /
+   ``request_uri`` in ``extra``), ``extra`` must not contain ``claims``,
+   ``prompt``, ``ui_locales``, ``acr_values``, ``max_age``, ``signRequest`` or
+   ``https://id.oidc.se/param/signRequest``; ``ValueError`` names the keys
+   (this includes a key that duplicates one of the keyword arguments above).
+   An ``authorization_endpoint`` whose own query carries one of these names
+   is refused with :class:`pygrindvakt.ConfigError` naming the keys, since it
+   would re-send an unsigned copy of a signed parameter; move them into the
+   signed request object. Other endpoint query pairs (for example
+   ``tenant=a``) are kept and not checked: they are the caller's
+   responsibility. Without a request object the endpoint is used as is.
+   Names are matched case-insensitively with surrounding whitespace trimmed
+   (errors echo the original spelling). The list covers only the parameters this
+   binding signs: ``claims_locales``, ``login_hint``, ``id_token_hint`` and
+   ``display`` are not checked, so keep them out of the unsigned query
+   yourself if you signed them.
+
+   .. versionchanged:: 0.7.0
+      Added ``claims``, ``prompt``, ``ui_locales``, ``acr_values``,
+      ``max_age`` and ``sign_request``.
 
 .. py:class:: BeginResult
 
@@ -300,7 +372,7 @@ Starting the flow
 
    .. versionadded:: 0.3.0
 
-.. py:function:: signed_request_object(provider: ProviderInfo, client: RpClient, key: SigningKey, state: str, nonce: str, code_challenge: str | None = None, *, redirect_uri: str | None = None) -> str
+.. py:function:: signed_request_object(provider: ProviderInfo, client: RpClient, key: SigningKey, state: str, nonce: str, code_challenge: str | None = None, *, redirect_uri: str | None = None, claims: dict[str, Any] | None = None, prompt: str | None = None, ui_locales: str | None = None, acr_values: str | None = None, max_age: int | None = None, sign_request: dict[str, Any] | None = None) -> str
 
    Build a signed request object (RFC 9101, "JAR") carrying the
    authorization-request parameters as JWT claims, signed with ``key``, with
@@ -309,9 +381,34 @@ Starting the flow
 
    OpenID Federation automatic registration needs this: pass the result as
    the ``request`` parameter via ``authorization_url(..., extra={"request":
-   jar})`` alongside the plain parameters. ``key`` must be one of the RP's
-   published client keys. ``redirect_uri`` overrides the client's value, as
+   jar})``. ``key`` must be one of the RP's published client keys. ``redirect_uri`` overrides the client's value, as
    in :func:`authorization_url`.
+
+   The keyword arguments ``claims`` (OIDC ``claims`` request), ``prompt``,
+   ``ui_locales``, ``acr_values``, ``max_age`` and ``sign_request`` (sent as
+   ``https://id.oidc.se/param/signRequest``, for Sweden Connect signature
+   requests) are placed inside the signed payload and omitted when ``None``.
+   ``claims`` and ``sign_request`` must be dicts (``TypeError`` otherwise) and
+   keep their JSON types. :func:`begin` takes the same arguments (with
+   ``request_object_key``) and then also trims the query to the minimum;
+   prefer it over building the request object by hand.
+
+   .. warning::
+
+      RFC 9101 section 3 minimal-query rule: the query should carry only
+      ``client_id``, ``response_type`` and ``request``. Do not repeat
+      parameters that are inside the signed request object: an OP that reads
+      the unsigned copy would apply a weaker value (for example ``max_age``,
+      ``acr_values``, ``claims``, ``prompt``, ``ui_locales`` or
+      ``signRequest``). :func:`authorization_url` and :func:`begin` raise
+      ``ValueError`` if ``extra`` repeats them next to a request object.
+      :func:`begin` with ``request_object_key`` and these arguments sends the
+      minimal query. ``sign_request`` is attacker-influenced
+      data for OP integrators that render it; the OP must cap its size.
+
+   .. versionchanged:: 0.7.0
+      Added ``claims``, ``prompt``, ``ui_locales``, ``acr_values``,
+      ``max_age`` and ``sign_request``.
 
 Discovery and keys
 ------------------

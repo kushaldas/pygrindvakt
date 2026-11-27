@@ -712,6 +712,129 @@ fn extra_params(extra: Option<&Bound<'_, PyAny>>) -> PyResult<Vec<(String, Strin
     }
 }
 
+/// Normalize a parameter name for guard comparisons: an OP may trim and
+/// case-fold names before consuming them, so the guards must too. Error
+/// messages still echo the original spelling.
+fn norm_key(k: &str) -> String {
+    k.trim().to_ascii_lowercase()
+}
+
+/// Keys (lowercase; compare via `norm_key`) that, when sent in the query next
+/// to a request object, would give an OP an unsigned (weaker) copy of a
+/// parameter the signed object carries.
+const JAR_ONLY_KEYS: &[&str] = &[
+    "claims",
+    "prompt",
+    "ui_locales",
+    "acr_values",
+    "max_age",
+    "signrequest",
+    "https://id.oidc.se/param/signrequest",
+];
+
+/// True when `extra` itself carries a request object (`request` or
+/// `request_uri`). `begin` additionally counts a `request_object_key`.
+fn extra_has_request_object(extra: &[(String, String)]) -> bool {
+    extra
+        .iter()
+        .any(|(k, _)| matches!(norm_key(k).as_str(), "request" | "request_uri"))
+}
+
+/// RFC 9101 section 3 / RFC 9126 section 3: at most one request object per
+/// request, and no unsigned copies of signed parameters next to it.
+/// `has_request_key` is true when `begin` signs one from `request_object_key`.
+fn reject_unsigned_jar_copies(extra: &[(String, String)], has_request_key: bool) -> PyResult<()> {
+    let has_request = extra.iter().any(|(k, _)| norm_key(k) == "request");
+    let has_request_uri = extra.iter().any(|(k, _)| norm_key(k) == "request_uri");
+    if has_request_key && (has_request || has_request_uri) {
+        return Err(PyValueError::new_err(
+            "extra must not carry request/request_uri when request_object_key is set: \
+             two request objects in one request (RFC 9101 section 3)",
+        ));
+    }
+    if has_request && has_request_uri {
+        return Err(PyValueError::new_err(
+            "extra must not carry both request and request_uri (RFC 9101 section 3)",
+        ));
+    }
+    // Names are compared normalized: an OP that folds names would see two
+    // request objects in `request` + `Request`.
+    let objects: Vec<&str> = extra
+        .iter()
+        .filter(|(k, _)| matches!(norm_key(k).as_str(), "request" | "request_uri"))
+        .map(|(k, _)| k.as_str())
+        .collect();
+    if objects.len() > 1 {
+        return Err(PyValueError::new_err(format!(
+            "extra must not carry more than one request object ({}): an OP may \
+             fold names and see two (RFC 9101 section 3)",
+            objects.join(", ")
+        )));
+    }
+    if !has_request_key && !extra_has_request_object(extra) {
+        return Ok(());
+    }
+    reject_jar_only_keys(extra)
+}
+
+/// Fail closed when the provider's own authorization endpoint query carries a
+/// JAR-only name and a request object is attached: the pair would re-inject an
+/// unsigned copy of a signed parameter (RFC 9101 section 3).
+fn reject_endpoint_jar_keys(endpoint: &str) -> PyResult<()> {
+    let Some((_, query)) = endpoint.split_once('?') else {
+        return Ok(());
+    };
+    let query = query.split('#').next().unwrap_or("");
+    let mut bad: Vec<String> = Vec::new();
+    let mut objs: Vec<String> = Vec::new();
+    for (k, _) in url::form_urlencoded::parse(query.as_bytes()) {
+        if matches!(norm_key(&k).as_str(), "request" | "request_uri")
+            && !objs.iter().any(|b| b == k.as_ref())
+        {
+            objs.push(k.to_string());
+        }
+        if JAR_ONLY_KEYS.contains(&norm_key(&k).as_str()) && !bad.iter().any(|b| b == k.as_ref()) {
+            bad.push(k.into_owned());
+        }
+    }
+    if !objs.is_empty() {
+        return Err(config_err(format!(
+            "authorization_endpoint query must not carry {} when another request \
+             object is attached: the OP would receive two request objects. Remove \
+             them from authorization_endpoint (RFC 9101 section 3)",
+            objs.join(", ")
+        )));
+    }
+    if bad.is_empty() {
+        return Ok(());
+    }
+    Err(config_err(format!(
+        "authorization_endpoint query must not carry {} when a request object \
+         is used: it would send an unsigned copy of a signed parameter. Move \
+         them into the signed request object and remove them from \
+         authorization_endpoint (RFC 9101 section 3)",
+        bad.join(", ")
+    )))
+}
+
+fn reject_jar_only_keys(extra: &[(String, String)]) -> PyResult<()> {
+    let mut bad: Vec<&str> = Vec::new();
+    for (k, _) in extra {
+        if JAR_ONLY_KEYS.contains(&norm_key(k).as_str()) && !bad.contains(&k.as_str()) {
+            bad.push(k.as_str());
+        }
+    }
+    if bad.is_empty() {
+        return Ok(());
+    }
+    Err(PyValueError::new_err(format!(
+        "extra must not carry {} when a request object is attached: an OP may \
+         apply the unsigned query copy instead of the signed one. Put these in \
+         the signed request object only (RFC 9101 section 3)",
+        bad.join(", ")
+    )))
+}
+
 /// Return the upstream client, with `redirect_uri` swapped in when given.
 ///
 /// SECURITY: an override is accepted only if it equals the client's
@@ -756,6 +879,12 @@ fn effective_client(client: &RpClient, redirect_uri: Option<String>) -> PyResult
 /// session; `code_challenge` is the PKCE `S256` challenge
 /// (`pygrindvakt.pkce.s256_challenge`). `extra` adds further query
 /// parameters (e.g. `{"prompt": "login"}` or a signed `request` object).
+/// When `extra` carries `request` or `request_uri`, it must not also carry
+/// `claims`, `prompt`, `ui_locales`, `acr_values`, `max_age`, `signRequest`
+/// or `https://id.oidc.se/param/signRequest` (`ValueError`, RFC 9101
+/// section 3): put them in the signed request object only. An authorization
+/// endpoint whose own query carries one of those names is refused with
+/// `ConfigError` in that case.
 #[pyfunction]
 #[pyo3(signature = (provider, client, state, nonce, code_challenge = None, extra = None, *, redirect_uri = None))]
 fn authorization_url(
@@ -769,6 +898,10 @@ fn authorization_url(
 ) -> PyResult<String> {
     let client = effective_client(client, redirect_uri)?;
     let extra = extra_params(extra)?;
+    reject_unsigned_jar_copies(&extra, false)?;
+    if extra_has_request_object(&extra) {
+        reject_endpoint_jar_keys(&provider.inner.authorization_endpoint)?;
+    }
     let extra_refs: Vec<(&str, &str)> = extra
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
@@ -784,16 +917,48 @@ fn authorization_url(
     .map_err(err)
 }
 
+/// Require a JSON object for a structured request-object parameter.
+fn json_object_param(
+    obj: Option<&Bound<'_, PyAny>>,
+    name: &str,
+) -> PyResult<Option<serde_json::Value>> {
+    let Some(obj) = obj.filter(|o| !o.is_none()) else {
+        return Ok(None);
+    };
+    let v: serde_json::Value = from_py(obj)?;
+    if !v.is_object() {
+        return Err(PyTypeError::new_err(format!(
+            "{name} must be a dict (JSON object), not {}",
+            json_type_name(&v)
+        )));
+    }
+    Ok(Some(v))
+}
+
 /// Build a signed request object (RFC 9101, "JAR") carrying the
 /// authorization-request parameters as JWT claims, signed with `key`.
 ///
 /// OpenID Federation automatic registration needs this: pass the result as
-/// the `request` parameter (via `authorization_url(..., extra={"request": jar})`)
-/// alongside the plain parameters. `key` must be one of the RP's published
-/// client keys. The object is valid for 300 seconds and carries a `jti`.
+/// the `request` parameter (via `authorization_url(..., extra={"request": jar})`).
+/// `key` must be one of the RP's published client keys. The object is valid for 300 seconds and carries a `jti`.
 /// `redirect_uri` overrides the client's value, as in `authorization_url`.
+///
+/// The optional `claims`, `prompt`, `ui_locales`, `acr_values`, `max_age` and
+/// `sign_request` (sent as `https://id.oidc.se/param/signRequest`) are
+/// included in the signed payload. `claims` and `sign_request` must be dicts
+/// and keep their JSON types.
+///
+/// RFC 9101 section 3 minimal-query rule: the query should carry only
+/// `client_id`, `response_type` and `request`. Parameters repeated outside the
+/// signed object can be read by an OP that prefers the unsigned copy, which
+/// then applies a weaker value (for example `max_age`, `acr_values`, `claims`,
+/// `prompt`, `ui_locales`, `signRequest`). `authorization_url` and `begin`
+/// currently still add the plain parameters to the query, so an OP must take
+/// them from the request object only. `sign_request` is attacker-influenced
+/// data for an OP that renders it: the OP must cap its size.
 #[pyfunction]
-#[pyo3(signature = (provider, client, key, state, nonce, code_challenge = None, *, redirect_uri = None))]
+#[pyo3(signature = (provider, client, key, state, nonce, code_challenge = None, *, redirect_uri = None, claims = None, prompt = None, ui_locales = None, acr_values = None, max_age = None, sign_request = None))]
+#[allow(clippy::too_many_arguments)]
 fn signed_request_object(
     provider: &ProviderInfo,
     client: &RpClient,
@@ -802,17 +967,72 @@ fn signed_request_object(
     nonce: &str,
     code_challenge: Option<&str>,
     redirect_uri: Option<String>,
+    claims: Option<&Bound<'_, PyAny>>,
+    prompt: Option<String>,
+    ui_locales: Option<String>,
+    acr_values: Option<String>,
+    max_age: Option<u64>,
+    sign_request: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<String> {
     let client = effective_client(client, redirect_uri)?;
-    grp::signed_request_object(
+    let params = grp::RequestObjectParameters {
+        claims: json_object_param(claims, "claims")?,
+        prompt,
+        ui_locales,
+        acr_values,
+        max_age,
+        sign_request: json_object_param(sign_request, "sign_request")?,
+    };
+    grp::signed_request_object_with(
         &provider.inner,
         &client,
         &key.inner,
         state,
         nonce,
         code_challenge,
+        &params,
     )
     .map_err(err)
+}
+
+/// Drop the parameters that live inside the signed request object from an
+/// authorization URL (RFC 9101 section 3), keeping everything else verbatim.
+///
+/// `endpoint` is the provider's authorization endpoint: its own query pairs
+/// come first in `url` and are kept verbatim. `begin` has already refused an
+/// endpoint query named like a JAR-only parameter (`reject_endpoint_jar_keys`),
+/// so a kept pair can never collide with a name signed into the request object.
+fn minimal_jar_query(url: &str, endpoint: &str) -> String {
+    const SIGNED: &[&str] = &[
+        "redirect_uri",
+        "scope",
+        "state",
+        "nonce",
+        "code_challenge",
+        "code_challenge_method",
+    ];
+    let Some((base, query)) = url.split_once('?') else {
+        return url.to_string();
+    };
+    // Endpoint pairs are a prefix of the generated query: skip them.
+    let own = endpoint.split_once('?').map_or("", |(_, q)| q);
+    let own = own.split('#').next().unwrap_or("");
+    let n_own = if own.is_empty() {
+        0
+    } else if query == own || query.starts_with(&format!("{own}&")) {
+        own.split('&').count()
+    } else {
+        // Prefix assumption violated: fail safe. Trimming without knowing
+        // which pairs are the endpoint's own could drop operator parameters.
+        return url.to_string();
+    };
+    let kept: Vec<&str> = query
+        .split('&')
+        .enumerate()
+        .filter(|(i, pair)| *i < n_own || !SIGNED.contains(&pair.split('=').next().unwrap_or("")))
+        .map(|(_, pair)| pair)
+        .collect();
+    format!("{base}?{}", kept.join("&"))
 }
 
 /// Start an authorization-code flow in one call.
@@ -828,8 +1048,23 @@ fn signed_request_object(
 /// Public clients (`auth_method="none"`) cannot disable PKCE: `pkce=False`
 /// raises `ConfigError`. When `request_object_key` is given, a signed
 /// request object (RFC 9101) is added as `extra["request"]`.
+///
+/// The keyword-only `claims`, `prompt`, `ui_locales`, `acr_values`, `max_age`
+/// and `sign_request` take the same values as `signed_request_object` and
+/// need `request_object_key` (otherwise `ValueError`). They are signed into
+/// the request object only. When any is given, the query is reduced to the
+/// RFC 9101 section 3 minimum: `client_id`, `response_type`, `request`, plus
+/// any `extra` entries and parameters already on the authorization endpoint.
+/// `redirect_uri`, `scope`, `state`, `nonce` and the PKCE challenge travel
+/// inside the signed object. Without them the query is unchanged.
+/// With a request object attached, `extra` must not carry any of those
+/// parameters (or `signRequest`, `https://id.oidc.se/param/signRequest`):
+/// `ValueError`, since the unsigned copy could override the signed one.
+/// An authorization endpoint whose own query carries one of those names is
+/// refused with `ConfigError` in the same situation.
 #[pyfunction]
-#[pyo3(signature = (provider, client, *, extra = None, redirect_uri = None, pkce = true, request_object_key = None))]
+#[pyo3(signature = (provider, client, *, extra = None, redirect_uri = None, pkce = true, request_object_key = None, claims = None, prompt = None, ui_locales = None, acr_values = None, max_age = None, sign_request = None))]
+#[allow(clippy::too_many_arguments)]
 fn begin<'py>(
     py: Python<'py>,
     provider: &ProviderInfo,
@@ -838,26 +1073,57 @@ fn begin<'py>(
     redirect_uri: Option<String>,
     pkce: bool,
     request_object_key: Option<&SigningKey>,
+    claims: Option<&Bound<'_, PyAny>>,
+    prompt: Option<String>,
+    ui_locales: Option<String>,
+    acr_values: Option<String>,
+    max_age: Option<u64>,
+    sign_request: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<Bound<'py, PyAny>> {
     let client = effective_client(client, redirect_uri)?;
+    let params = grp::RequestObjectParameters {
+        claims: json_object_param(claims, "claims")?,
+        prompt,
+        ui_locales,
+        acr_values,
+        max_age,
+        sign_request: json_object_param(sign_request, "sign_request")?,
+    };
+    let has_jar_params = params.claims.is_some()
+        || params.prompt.is_some()
+        || params.ui_locales.is_some()
+        || params.acr_values.is_some()
+        || params.max_age.is_some()
+        || params.sign_request.is_some();
+    if has_jar_params && request_object_key.is_none() {
+        return Err(PyValueError::new_err(
+            "claims, prompt, ui_locales, acr_values, max_age and sign_request \
+             need request_object_key (they are signed into the request object)",
+        ));
+    }
     // Refuse before generating anything: a public client must not run the
     // code flow without PKCE (upstream also enforces this; do not depend on it).
     if !pkce && matches!(client.auth, ClientAuth::None) {
         return Err(config_err("public clients must use S256 PKCE"));
     }
     let mut extra = extra_params(extra)?;
+    reject_unsigned_jar_copies(&extra, request_object_key.is_some())?;
+    if request_object_key.is_some() || extra_has_request_object(&extra) {
+        reject_endpoint_jar_keys(&provider.inner.authorization_endpoint)?;
+    }
     let state = grindvakt::util::random_token(32);
     let nonce = grindvakt::util::random_token(32);
     let verifier = pkce.then(|| grindvakt::util::random_token(48));
     let challenge = verifier.as_deref().map(grindvakt::pkce::s256_challenge);
     if let Some(key) = request_object_key {
-        let jar = grp::signed_request_object(
+        let jar = grp::signed_request_object_with(
             &provider.inner,
             &client,
             &key.inner,
             &state,
             &nonce,
             challenge.as_deref(),
+            &params,
         )
         .map_err(err)?;
         extra.push(("request".to_string(), jar));
@@ -875,6 +1141,11 @@ fn begin<'py>(
         &extra_refs,
     )
     .map_err(err)?;
+    let url = if has_jar_params {
+        minimal_jar_query(&url, &provider.inner.authorization_endpoint)
+    } else {
+        url
+    };
     begin_result_type(py)?.call1((url, state, nonce, verifier))
 }
 

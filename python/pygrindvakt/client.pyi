@@ -56,8 +56,9 @@ class Client:
         """Unpadded base64url SHA-256 of the registration snapshot (credentials,
         keys and redirect URIs all contribute).
 
-        Pass it as ``AuthCodePayload.registration_digest`` when sealing
-        authorization codes yourself. Changing the registration afterwards makes
+        Pass it as ``AuthCodePayload.registration_digest`` only when hand-sealing
+        authorization codes (advanced);
+        ``Provider.authorization_redirect_with_authorized_claims`` seals it itself. Changing the registration afterwards makes
         redemption fail with ``invalid_grant``."""
     @property
     def client_id(self) -> str: ...
@@ -96,9 +97,9 @@ class Client:
           encrypts the signed ID token to the client's ``jwks``. ``enc``
           defaults to ``A128CBC-HS256``.
         - ``userinfo_encrypted_response_alg`` / ``userinfo_encrypted_response_enc``:
-          the same for signed UserInfo responses. Stored but NOT applied:
-          ``Provider.userinfo()`` returns JSON claims and core's
-          ``signed_userinfo`` is not bound, so UserInfo is never encrypted.
+          the same for signed UserInfo responses. Applied by
+          ``Provider.signed_userinfo()``; ``Provider.userinfo()`` always
+          returns plain JSON.
         """
     def allows_redirect(self, uri: str) -> bool:
         """Whether ``uri`` exactly matches a registered redirect URI."""

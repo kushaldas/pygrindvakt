@@ -195,7 +195,43 @@ def signed_request_object(
     code_challenge: str | None = ...,
     *,
     redirect_uri: str | None = ...,
-) -> str: ...
+    claims: dict[str, Any] | None = ...,
+    prompt: str | None = ...,
+    ui_locales: str | None = ...,
+    acr_values: str | None = ...,
+    max_age: int | None = ...,
+    sign_request: dict[str, Any] | None = ...,
+) -> str:
+    """Build a signed Request Object (JAR) for ``client`` and ``provider``.
+
+    The optional keyword arguments ``claims``, ``prompt``, ``ui_locales``,
+    ``acr_values``, ``max_age`` and ``sign_request`` are included in the signed
+    payload. ``claims`` and ``sign_request`` must be ``dict``; anything else
+    raises ``TypeError``, and their JSON types are kept. ``sign_request`` is sent
+    as ``https://id.oidc.se/param/signRequest``. A negative ``max_age`` raises
+    ``OverflowError``.
+
+    RFC 9101 section 3: the query should carry only ``client_id``,
+    ``response_type`` and ``request``; do not repeat parameters that are inside
+    the signed object, because an OP reading the unsigned copy would apply a
+    weaker value. ``authorization_url`` and ``begin`` refuse these parameters in
+    ``extra`` when a request object is attached, and refuse a second request
+    object (``request`` and ``request_uri`` together, or either with
+    ``request_object_key``) (``ValueError``). More than one ``request`` /
+    ``request_uri`` entry in ``extra`` is refused too, counting names
+    case-insensitively with whitespace trimmed (``request`` plus ``Request``).
+    An endpoint query pair named like one of those parameters, or named
+    ``request`` / ``request_uri``, is refused with ``ConfigError`` when a
+    request object is attached (a second object); other
+    endpoint pairs are not checked. ``begin`` with
+    these arguments and ``request_object_key`` sends the minimal query.
+    ``sign_request`` is attacker-influenced data for an OP that renders it; the
+    OP must cap its size.
+
+    .. versionchanged:: 0.7.0
+       Added ``claims``, ``prompt``, ``ui_locales``, ``acr_values``,
+       ``max_age`` and ``sign_request``.
+    """
 
 class BeginResult(NamedTuple):
     """Result of ``begin``: a real ``tuple`` ``(url, state, nonce, code_verifier)``.
@@ -220,7 +256,52 @@ def begin(
     redirect_uri: str | None = ...,
     pkce: bool = ...,
     request_object_key: SigningKey | None = ...,
-) -> BeginResult: ...
+    claims: dict[str, Any] | None = ...,
+    prompt: str | None = ...,
+    ui_locales: str | None = ...,
+    acr_values: str | None = ...,
+    max_age: int | None = ...,
+    sign_request: dict[str, Any] | None = ...,
+) -> BeginResult:
+    """Start an authorization-code flow: fresh ``state``, ``nonce`` and PKCE.
+
+    With ``request_object_key`` a signed request object (RFC 9101) carrying the
+    same ``state``, ``nonce`` and ``code_challenge`` is added as ``request``.
+
+    The keyword arguments ``claims``, ``prompt``, ``ui_locales``,
+    ``acr_values``, ``max_age`` and ``sign_request`` take the same values as
+    for :func:`signed_request_object` (``claims`` and ``sign_request`` must be
+    ``dict``, else ``TypeError``; a negative ``max_age`` raises
+    ``OverflowError``). They need ``request_object_key``, else ``ValueError``.
+    They are signed into the request object only. When any is given, the query
+    is reduced to the RFC 9101 section 3 minimum: ``client_id``,
+    ``response_type`` and ``request``, plus any ``extra`` entries and
+    parameters already on the authorization endpoint. ``redirect_uri``,
+    ``scope``, ``state``, ``nonce`` and the PKCE challenge are then only in the
+    signed object. Without them the query is unchanged (full plain query plus
+    ``request``).
+
+    With a request object attached (``request_object_key``, or
+    ``request`` / ``request_uri`` in ``extra``), ``extra`` must not contain
+    ``claims``, ``prompt``, ``ui_locales``, ``acr_values``, ``max_age``,
+    ``signRequest`` or ``https://id.oidc.se/param/signRequest``:
+    ``ValueError`` naming the keys, because an OP could apply the unsigned
+    copy (RFC 9101 section 3). Put them in the signed object only. The list
+    is matched case-insensitively with surrounding whitespace trimmed (an OP
+    may fold names too; the error echoes your spelling) and covers only the parameters this binding
+    signs: ``claims_locales``, ``login_hint``, ``id_token_hint`` and
+    ``display`` are not checked, so keep them out of the unsigned query
+    yourself if you signed them. A provider ``authorization_endpoint`` whose
+    own query carries one of those names is refused with ``ConfigError`` in
+    the same situation (it would re-send an unsigned copy); move them into the
+    signed object. Other endpoint query pairs are kept and are the caller's
+    responsibility.
+
+    .. versionchanged:: 0.7.0
+       Added ``claims``, ``prompt``, ``ui_locales``, ``acr_values``,
+       ``max_age`` and ``sign_request``.
+    """
+
 def claims_audiences(claims: Mapping[str, Any]) -> list[str]:
     """Normalise ``claims["aud"]`` to a NON-EMPTY list of non-empty strings.
 

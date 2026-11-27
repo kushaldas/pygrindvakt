@@ -51,7 +51,7 @@ that vouch for it) and its metadata per entity type.
                    "redirect_uris": [f"{ENTITY_ID}/callback"],
                    "jwks": RP_CLIENT_KEY.to_public_jwks(),      # the private_key_jwt key
                    "token_endpoint_auth_method": "private_key_jwt",
-                   "subject_type": "pairwise",
+                   "subject_type": "public",
                },
                "federation_entity": {"organization_name": "Example Org"},
            },
@@ -118,7 +118,37 @@ wins; if all fail the last error is raised.
    entity.metadata         # policy-applied metadata, e.g. entity.metadata["openid_provider"]
    entity.subject_jwks     # the subject's federation keys
    entity.exp              # earlier of resolve and chain expiry; bound your cache by it
-   entity.trust_marks      # raw entries; verify before trusting
+   entity.trust_marks      # raw entries; verify with verify_trust_marks
+
+Trust marks
+-----------
+
+``entity.trust_marks`` is unverified. Do not test it with
+``any(m["trust_mark_type"] == REQUIRED for m in entity.trust_marks)``: that
+accepts a mark nobody signed. Use
+:func:`~pygrindvakt.federation.verify_trust_marks` with the keys of the
+trust mark *issuer* (the trust anchor only if it issues the mark itself):
+
+.. code-block:: python
+
+   marks = federation.verify_trust_marks(
+       entity.trust_marks,
+       MARK_ISSUER_JWKS,
+       REQUIRED,
+       subject=entity.subject,
+       issuer=MARK_ISSUER_ID,
+   )
+
+.. warning::
+
+   ``issuer`` is required, and ``MARK_ISSUER_JWKS`` must be keys you verified
+   for that issuer. Never pass ``entity.subject_jwks``: the subject could then
+   self-sign a mark (``iss == sub``) that verifies. Pinning ``issuer`` makes
+   such a mark fail.
+
+It raises ``AuthnError`` (``trust_mark_missing`` / ``trust_mark_invalid``)
+unless at least one mark verifies. Marks without ``exp`` are rejected unless
+``require_exp=False``.
 
 Resolution is several HTTP round trips. Cache the result, keyed by subject,
 for at most ``entity.exp - now`` seconds. ``exp`` is the earlier of the resolve
@@ -219,7 +249,9 @@ federation front end implements in Rust; in Python it is a few lines around
            token_endpoint_auth_method=client.AUTH_PRIVATE_KEY_JWT,
            jwks=rp_meta.get("jwks"),
            scope=rp_meta.get("scope"),
-           subject_type=rp_meta.get("subject_type", "pairwise"),
+           # Public only: the binding has no pairwise support and Provider
+           # refuses pairwise clients. Default to "public", never "pairwise".
+           subject_type=rp_meta.get("subject_type", "public"),
            client_name=rp_meta.get("client_name"),
        )
        # Never trust the RP for longer than the trust anchor does.

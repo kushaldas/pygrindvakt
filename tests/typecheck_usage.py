@@ -6,7 +6,7 @@ the built-in ``ReqwestClient``, ``None`` and a custom protocol client.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pygrindvakt.http
 from pygrindvakt import (
@@ -240,6 +240,15 @@ def use_all() -> None:
 
     federation.fetch_entity_configuration(reqwest, "https://ta.example.com")
     federation.fetch_entity_configuration(custom, "https://ta.example.com")
+    verified_marks: list[federation.EntityStatement] = federation.verify_trust_marks(
+        [],
+        {"keys": []},
+        "https://t.example.com/mark",
+        subject="https://rp.example.com",
+        issuer="https://ti.example.com",
+        require_exp=False,
+    )
+    assert verified_marks == []
     federation.fetch_collection(None, "https://ta.example.com/collection", "openid_provider")
 
     discovery.self_published_rp(reqwest, "https://rp.example.com")
@@ -463,6 +472,59 @@ def use_authorization_response_iss(
     )
     resp: pygrindvakt.http.Response = op.authorization_error_redirect(req, OAuthError("access_denied", state=req.state))
     del resp
+
+
+def use_authorized_claims(op: provider.Provider, req: request.AuthorizationRequest) -> None:
+    ac = provider.AuthorizedClaims(id_token={"name": "A"}, userinfo={"email": "a@x"})
+    idc: dict[str, Any] = ac.id_token
+    uic: dict[str, Any] = ac.userinfo
+    resp: pygrindvakt.http.Response = op.authorization_redirect_with_authorized_claims(
+        req, "alice", ac, acr="urn:acr:2", auth_time=1
+    )
+    del idc, uic, resp
+
+
+def use_signed_userinfo(op: provider.Provider) -> None:
+    jws: str = op.signed_userinfo("tok")
+    jws2: str = op.signed_userinfo("tok", presented_jkt="jkt")
+    del jws, jws2
+
+
+def use_consume_request_id(op: provider.Provider) -> None:
+    op.consume_request_id("demo", "jti-1", 4102444800)
+
+
+def use_signed_request_object_params(info: rp.ProviderInfo, me: rp.RpClient, key: keys.SigningKey) -> None:
+    jar: str = rp.signed_request_object(
+        info,
+        me,
+        key,
+        "st",
+        "n",
+        None,
+        claims={"id_token": {"acr": {"essential": True}}},
+        prompt="login",
+        ui_locales="sv en",
+        acr_values="urn:acr:2",
+        max_age=300,
+        sign_request={"displayName": {"en": "x"}},
+    )
+    del jar
+
+
+def use_begin_signed_params(info: rp.ProviderInfo, me: rp.RpClient, key: keys.SigningKey) -> None:
+    res: rp.BeginResult = rp.begin(
+        info,
+        me,
+        request_object_key=key,
+        claims={"id_token": {"acr": {"essential": True}}},
+        prompt="login",
+        ui_locales="sv en",
+        acr_values="urn:acr:2",
+        max_age=300,
+        sign_request={"displayName": {"en": "x"}},
+    )
+    del res
 
 
 def use_testing(op: provider.Provider, key: keys.SigningKey) -> None:

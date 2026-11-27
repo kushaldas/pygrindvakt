@@ -4,7 +4,12 @@ sealed payloads (authorization codes, access tokens, refresh tokens)."""
 from typing import Any
 
 class AuthCodePayload:
-    """Payload sealed into an authorization code."""
+    """Payload sealed into an authorization code.
+
+    Constructing one with ``registration_digest=None`` emits a ``FutureWarning``
+    (the registration binding check is skipped silently for such codes). Decoding
+    a sealed code does not warn.
+    """
 
     def __init__(
         self,

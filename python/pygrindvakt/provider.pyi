@@ -54,6 +54,26 @@ class TokenLifetimes:
     def refresh_token_ttl(self) -> int: ...
     def __repr__(self) -> str: ...
 
+class AuthorizedClaims:
+    """Per-destination claim release decisions for
+    :meth:`Provider.authorization_redirect_with_authorized_claims`.
+
+    ``id_token`` claims go into the ID token; ``userinfo`` claims are returned
+    by UserInfo. Put a claim in both only when both destinations are
+    authorized to receive it. Values keep their JSON types. Reserved claim
+    names in ``RESERVED_ID_TOKEN_CLAIMS`` raise ``ValueError``; ``None`` for
+    either map raises ``TypeError``.
+
+    .. versionadded:: 0.7.0
+    """
+
+    def __init__(self, *, id_token: dict[str, Any], userinfo: dict[str, Any]) -> None: ...
+    @property
+    def id_token(self) -> dict[str, Any]: ...
+    @property
+    def userinfo(self) -> dict[str, Any]: ...
+    def __repr__(self) -> str: ...
+
 class TokenResponse:
     """A successful token-endpoint response. ``to_dict()`` is exactly the JSON
     body to send (with ``cache-control: no-store``)."""
@@ -165,6 +185,35 @@ class Provider:
         on, use ``authorization_error_redirect`` instead so the error carries
         ``iss``; in query mode a registered ``redirect_uri`` that already has
         an ``iss`` query parameter raises ``OAuthError(server_error)``.
+
+        For separate ID token and UserInfo release use
+        ``authorization_redirect_with_authorized_claims``.
+        """
+    def authorization_redirect_with_authorized_claims(
+        self,
+        request: AuthorizationRequest,
+        sub: str,
+        claims: AuthorizedClaims,
+        *,
+        acr: str | None = ...,
+        auth_time: int | None = ...,
+    ) -> Response:
+        """Like ``authorization_redirect``, with separate ID token and UserInfo
+        release decisions.
+
+        No scope filter is applied: ``claims`` is released as given, so apply
+        scope and release policy first. Put a claim in both maps only if both
+        destinations are authorized to receive it. The registration
+        fingerprint and the UserInfo claim set are always sealed into the
+        code. Refresh keeps the split; if the client drops a previously granted
+        scope at refresh, the matching standard claims are removed from both
+        destinations. ``sub`` must be a public subject: pairwise clients raise
+        ``OAuthError(unauthorized_client)``. The binding has no pairwise
+        support; core refuses pairwise registrations at validation, so this
+        check is defence in depth. ``auth_time`` defaults to issuance
+        time.
+
+        .. versionadded:: 0.7.0
         """
     def authorization_error_redirect(self, request: AuthorizationRequest, error: OAuthError) -> Response:
         """Render an authorization error redirect for ``request`` in its
@@ -200,6 +249,25 @@ class Provider:
     def userinfo(self, access_token: str, presented_jkt: str | None = ...) -> dict[str, Any]:
         """Require an ``openid``-scoped access token, validate it (and any
         DPoP key binding), and return the subject and scope-filtered claims."""
+    def signed_userinfo(self, access_token: str, presented_jkt: str | None = ...) -> str:
+        """Like :meth:`userinfo`, but return a compact JWS (``typ`` ``userinfo+jwt``,
+        ``iss``, ``aud`` = client_id, ``exp`` = min(access token exp, now + 300)),
+        or a JWE when the client registered ``userinfo_encrypted_response_alg``.
+        Serve it with ``content-type: application/jwt``. Raises ``OAuthError``:
+        token, scope and DPoP failures as for ``userinfo``; ``invalid_grant`` if
+        the client is gone; ``server_error`` on signing or encryption failure."""
+    def consume_request_id(self, client_id: str, jti: str, expiry: int) -> None:
+        """Record a verified request object ``jti`` for one-time use by
+        ``client_id``; ``expiry`` is the acceptance deadline in Unix seconds.
+        Raises ``OAuthError``: ``invalid_request`` for an empty or over-512-byte
+        ``jti``, a past ``expiry`` or one more than 900 s ahead,
+        ``invalid_grant`` on reuse, ``server_error`` on store failure.
+        ``expiry`` is bounded to now + 900 s because the replay marker lives in
+        the shared ``token_use_store`` until then; longer-lived request objects
+        are refused (nothing recorded). Reject request objects whose ``exp``
+        exceeds that bound yourself as well. Pass the request object's own
+        ``exp``, not ``exp`` plus clock-skew leeway: a request object valid
+        for exactly 900 s ahead plus leeway would be refused."""
     def authenticate_client(
         self,
         form: list[tuple[str, str]],

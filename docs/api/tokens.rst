@@ -37,7 +37,10 @@ Codec
 
    .. py:method:: seal_code(payload: AuthCodePayload) -> str
 
-      When sealing codes yourself, bind them to the registration:
+      Prefer :meth:`pygrindvakt.provider.Provider.authorization_redirect_with_authorized_claims`,
+      which seals the registration fingerprint and UserInfo claim set for you.
+      Sealing codes by hand is an advanced path. If you do, bind them to the
+      registration:
 
       .. code-block:: python
 
@@ -127,11 +130,24 @@ userinfo response.
       .. warning::
 
          If ``None``, the binding check is **skipped silently**, also for
-         codes you build by hand. An OP that seals its own codes must pass
-         ``client.registration_fingerprint()``, otherwise a rotated secret or
-         key does not invalidate outstanding codes.
+         codes you build by hand. Constructing an :class:`AuthCodePayload`
+         with ``registration_digest=None`` emits a :class:`FutureWarning`
+         (decoding a sealed code does not). Under ``-W error`` or
+         ``filterwarnings = error::FutureWarning`` the constructor raises
+         instead of warning. Prefer
+         :meth:`Provider.authorization_redirect_with_authorized_claims
+         <pygrindvakt.provider.Provider.authorization_redirect_with_authorized_claims>`,
+         which seals it for you. An OP that hand-seals its codes (advanced)
+         must pass ``client.registration_fingerprint()``, otherwise a rotated
+         secret or key does not invalidate outstanding codes.
 
       .. versionadded:: 0.6.0
+
+      .. versionchanged:: 0.7.0
+         Building a payload with ``registration_digest=None`` emits a
+         :class:`FutureWarning`. The argument will become required in a
+         future release. Codes sealed before 0.6.0 still open without a digest
+         and without a warning.
 
    .. py:property:: userinfo_claims
       :type: dict[str, Any] | None
@@ -146,7 +162,10 @@ userinfo response.
          full ``claims`` map at the UserInfo endpoint. To release no
          application claims there, pass ``{}``. Never forward a value that may
          be ``None`` when you mean "none"; that silently over-releases
-         per-attribute personal data.
+         per-attribute personal data. Prefer
+         :meth:`Provider.authorization_redirect_with_authorized_claims
+         <pygrindvakt.provider.Provider.authorization_redirect_with_authorized_claims>`
+         over hand-sealing: it always sets this explicitly.
 
       .. versionadded:: 0.6.0
 
@@ -158,6 +177,10 @@ userinfo response.
 
    .. versionchanged:: 0.6.0
       Added ``registration_digest`` and ``userinfo_claims``.
+
+   .. versionchanged:: 0.7.0
+      Omitting ``registration_digest`` (or passing ``None``) emits a
+      :class:`FutureWarning`; it will become required in a future release.
 
 .. py:class:: AccessTokenPayload(*, client_id: str, sub: str, scope: str, exp: int, claims: dict[str, Any] | None = None, cnf_jkt: str | None = None)
 

@@ -38,7 +38,24 @@ Constants
    :value: ["iss", "sub", "aud", "exp", "iat", "nbf", "jti", "nonce", "auth_time", "acr", "azp", "at_hash", "c_hash"]
 
    Claim names that :meth:`Provider.authorization_redirect` refuses in
-   ``extra_claims``.
+   ``extra_claims`` and :class:`AuthorizedClaims` refuses in either map.
+
+AuthorizedClaims
+----------------
+
+.. py:class:: AuthorizedClaims(*, id_token: dict[str, Any], userinfo: dict[str, Any])
+
+   Per-destination claim release decisions for
+   :meth:`Provider.authorization_redirect_with_authorized_claims`. Both
+   keywords are required; ``None`` raises ``TypeError``. Values keep their
+   JSON types. Names in :data:`RESERVED_ID_TOKEN_CLAIMS` in either map raise
+   ``ValueError``. The instance is immutable; ``id_token`` and ``userinfo``
+   return fresh dicts, and ``repr()`` shows claim names only.
+
+   Put a claim in both maps only if both destinations are authorized to
+   receive it.
+
+   .. versionadded:: 0.7.0
 
 Provider
 --------
@@ -101,6 +118,10 @@ Provider
 
       The ``/.well-known/openid-configuration`` document as a dict. Serve it
       with ``Response.json(op.discovery_document())``.
+
+      It advertises ``subject_types_supported`` as ``["public"]`` only. The
+      binding does not support pairwise subjects, so do not add ``"pairwise"``
+      to your own metadata.
 
    .. py:method:: jwks_document() -> dict[str, Any]
 
@@ -167,6 +188,32 @@ Provider
          ``OAuthError(invalid_request)`` before anything is minted, even when
          the client registered it; core alone accepted these.
 
+   .. py:method:: authorization_redirect_with_authorized_claims(request: AuthorizationRequest, sub: str, claims: AuthorizedClaims, *, acr: str | None = None, auth_time: int | None = None) -> Response
+
+      Like :meth:`authorization_redirect`, but the ID token and the UserInfo
+      response receive separate claim sets from ``claims``. The request is
+      revalidated and the ``redirect_uri`` checked as in
+      :meth:`authorization_redirect`, and errors are rendered the same way.
+
+      **No scope filter is applied**: ``claims`` is released as given, so
+      apply the granted scopes and your release policy before building it. Put
+      a claim in both maps only if both destinations are authorized to receive
+      it. The code always seals the registration fingerprint and an explicit
+      UserInfo claim set (``{}`` releases nothing there beyond ``sub``).
+      Refresh keeps the split. If the client drops a previously granted scope
+      at refresh, the matching standard claims are removed from both
+      destinations.
+
+      ``sub`` must be non-empty and the client's subject type must be
+      ``public``; a pairwise client raises ``OAuthError(unauthorized_client)``.
+      This is defence in depth: the binding never enables pairwise subjects,
+      so core already refuses pairwise registrations at validation. Public
+      subject identifiers only; pairwise subject support is not provided by
+      this binding (see :doc:`../guides/security`).
+      ``auth_time`` (Unix seconds) defaults to issuance time.
+
+      .. versionadded:: 0.7.0
+
    .. py:method:: authorization_error_redirect(request: AuthorizationRequest, error: OAuthError) -> Response
 
       Render an authorization error redirect for ``request`` in its response
@@ -225,6 +272,52 @@ Provider
       :func:`pygrindvakt.dpop.validate_resource_proof`) must match the
       token's ``cnf.jkt``; a bound token presented as plain Bearer is
       rejected. Raises :class:`pygrindvakt.OAuthError`.
+
+   .. py:method:: signed_userinfo(access_token: str, presented_jkt: str | None = None) -> str
+
+      Like :meth:`userinfo`, but return the response as a signed JWT: a
+      compact JWS with ``typ`` ``userinfo+jwt``, ``iss``, ``aud`` set to the
+      client id and ``exp`` at the earlier of the access token's expiry and
+      five minutes from now. A client registered with
+      ``userinfo_encrypted_response_alg`` (and optionally ``_enc``) receives
+      a compact JWE of that JWS instead. Serve the result with
+      ``content-type: application/jwt``. Relying parties verify it with
+      :func:`pygrindvakt.rp.fetch_userinfo` using ``trust="typed"`` and
+      ``typ="userinfo+jwt"``.
+
+      Token, scope and DPoP failures raise :class:`pygrindvakt.OAuthError`
+      with the same codes as :meth:`userinfo`. A client that is no longer
+      registered, or unusable claims, raise ``invalid_grant``; a signing or
+      encryption failure raises ``server_error``.
+
+      .. versionadded:: 0.7.0
+
+   .. py:method:: consume_request_id(client_id: str, jti: str, expiry: int) -> None
+
+      Record a verified request object (RFC 9101) identifier for one-time
+      use by ``client_id``: an OP-side JAR replay helper. The binding does
+      not verify request objects; frontends must verify the signature and
+      bind the object to the client themselves, then call this with the
+      ``jti`` and the acceptance deadline ``expiry`` (Unix seconds).
+
+      Returns ``None``. Raises :class:`pygrindvakt.OAuthError`:
+      ``invalid_request`` for an empty or over-512-byte ``jti`` or an
+      ``expiry`` that is not in the future or is more than 900 seconds
+      ahead, ``invalid_grant`` on reuse, ``server_error`` on store failure.
+      Replay state lives in the provider's ``token_use_store``; replicas need
+      a shared one (for example :class:`RedisStore`) to enforce single use
+      across processes.
+
+      The marker is kept until ``expiry``, so the binding refuses an
+      ``expiry`` beyond now + 900 s (nothing is recorded): otherwise a
+      client could fill the shared store with permanent entries. Request
+      objects with a longer lifetime are refused, and the integrator should
+      reject request objects whose ``exp`` exceeds that bound anyway. Pass
+      the request object's own ``exp``, not ``exp`` plus clock-skew leeway: a
+      request object valid for exactly 900 s ahead plus leeway would be
+      refused.
+
+      .. versionadded:: 0.7.0
 
    .. py:method:: authenticate_client(form: list[tuple[str, str]], token_url: str, auth_header: str | None = None) -> Client
 

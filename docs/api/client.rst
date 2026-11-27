@@ -65,8 +65,11 @@ Client
       Unpadded base64url SHA-256 of the registration snapshot. Credentials,
       keys and redirect URIs all contribute. Pass it as
       :attr:`AuthCodePayload.registration_digest
-      <pygrindvakt.tokens.AuthCodePayload.registration_digest>` when your own
-      code seals authorization codes. If the registration changes afterwards,
+      <pygrindvakt.tokens.AuthCodePayload.registration_digest>` only when your
+      own code hand-seals authorization codes (advanced).
+      :meth:`Provider.authorization_redirect_with_authorized_claims
+      <pygrindvakt.provider.Provider.authorization_redirect_with_authorized_claims>`
+      seals it itself. If the registration changes afterwards,
       redeeming the code fails with ``invalid_grant``.
 
       .. versionadded:: 0.6.0
@@ -93,6 +96,12 @@ Client
       :type: str | None
    .. py:property:: subject_type
       :type: str
+
+      ``"public"`` (the default) or ``"pairwise"``. The data model accepts
+      ``"pairwise"``, but Provider validation rejects it: the binding never
+      enables core's pairwise subjects, and no Provider method works with a
+      pairwise client. Use ``"public"``.
+
    .. py:property:: client_name
       :type: str | None
 
@@ -132,11 +141,11 @@ Client
              ``A128CBC-HS256`` when only the ``alg`` is registered.
          * - ``userinfo_encrypted_response_alg``
            - JWE key management algorithm for the signed UserInfo response.
-             **Stored but not applied**: ``Provider.userinfo()`` returns JSON
-             claims, and core's ``signed_userinfo`` is not bound yet.
+             Applied by ``Provider.signed_userinfo()``; ``Provider.userinfo()``
+             always returns plain JSON.
          * - ``userinfo_encrypted_response_enc``
-           - UserInfo content encryption algorithm, same default. Not applied
-             (see above).
+           - UserInfo content encryption algorithm, same default. Applied
+             by ``Provider.signed_userinfo()``.
 
    .. py:method:: allows_redirect(uri: str) -> bool
 

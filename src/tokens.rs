@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyFutureWarning, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyModule;
 
@@ -11,6 +11,10 @@ use grindvakt::tokens as gt;
 
 use crate::convert::{from_py, new_submodule, to_py};
 use crate::errors::err;
+
+/// `PyErr::warn` stacklevel naming the Python caller: native frames are not Python
+/// frames, so 1 is already the frame that called the constructor (2 reports `sys:1`).
+const STACKLEVEL: i32 = 1;
 
 fn claims_map(v: Option<&Bound<'_, PyAny>>) -> PyResult<BTreeMap<String, serde_json::Value>> {
     match v {
@@ -49,6 +53,7 @@ impl AuthCodePayload {
                         registration_digest = None, userinfo_claims = None))]
     #[allow(clippy::too_many_arguments)]
     fn new(
+        py: Python<'_>,
         client_id: String,
         redirect_uri: String,
         scope: String,
@@ -63,23 +68,36 @@ impl AuthCodePayload {
         registration_digest: Option<String>,
         userinfo_claims: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
-        Ok(Self {
-            inner: gt::AuthCodePayload {
-                client_id,
-                redirect_uri,
-                scope,
-                sub,
-                nonce,
-                code_challenge,
-                code_challenge_method,
-                claims: claims_map(claims)?,
-                auth_time,
-                exp,
-                acr,
-                registration_digest,
-                userinfo_claims: opt_claims_map(userinfo_claims)?,
-            },
-        })
+        let inner = gt::AuthCodePayload {
+            client_id,
+            redirect_uri,
+            scope,
+            sub,
+            nonce,
+            code_challenge,
+            code_challenge_method,
+            claims: claims_map(claims)?,
+            auth_time,
+            exp,
+            acr,
+            registration_digest,
+            userinfo_claims: opt_claims_map(userinfo_claims)?,
+        };
+        if inner.registration_digest.is_none() {
+            // Only the Python constructor warns; codes opened by the codec and
+            // from_dict build the Rust payload directly and stay silent.
+            PyErr::warn(
+                py,
+                &py.get_type::<PyFutureWarning>(),
+                c"AuthCodePayload without registration_digest skips the client-registration \
+                  binding check at the token endpoint, so a rotated secret or key does not \
+                  invalidate outstanding codes; it will become required in a future release. \
+                  Pass registration_digest=client.registration_fingerprint() or use \
+                  Provider.authorization_redirect_with_authorized_claims",
+                STACKLEVEL,
+            )?;
+        }
+        Ok(Self { inner })
     }
     #[staticmethod]
     fn from_dict(d: &Bound<'_, PyAny>) -> PyResult<Self> {

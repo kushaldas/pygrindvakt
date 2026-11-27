@@ -53,10 +53,10 @@ framework integrations cannot accidentally omit deployment-critical choices.
        non-string values raise ``ValueError``.
      - The provider enforces the policy: the ``private_key_jwt`` algorithm
        pin (a ``kid`` is then required) and ID token encryption to the
-       client's registered key. ``userinfo_encrypted_response_*`` is stored
-       but **not applied**: :meth:`~pygrindvakt.provider.Provider.userinfo`
-       returns JSON claims, and core's ``signed_userinfo`` (the only method
-       that encrypts) is not bound yet. Do not rely on UserInfo encryption.
+       client's registered key. ``userinfo_encrypted_response_*`` is applied
+       by :meth:`~pygrindvakt.provider.Provider.signed_userinfo`;
+       :meth:`~pygrindvakt.provider.Provider.userinfo` always returns plain
+       JSON.
        Without the policy a client could sign assertions with any algorithm
        and receive plaintext-signed ID tokens.
      - None; register the policy on the client.
@@ -68,6 +68,19 @@ framework integrations cannot accidentally omit deployment-critical choices.
        hiding an attempt to override the subject or nonce.
      - None; use ``sub`` and ``acr`` parameters for those, and
        ``external_claims`` for user attributes.
+   * - Hand-sealed codes (:meth:`pygrindvakt.tokens.TokenCodec.seal_code`)
+       skip the registration check when ``registration_digest`` is omitted,
+       and release the full ``claims`` map at UserInfo when
+       ``userinfo_claims=None``.
+     - Without the digest a rotated secret or key does not invalidate
+       outstanding codes; ``userinfo_claims=None`` over-releases personal
+       data to UserInfo.
+     - :meth:`pygrindvakt.provider.Provider.authorization_redirect_with_authorized_claims`
+       seals the digest and an explicit UserInfo claim set itself.
+       Migrating from ``authorization_redirect``: the new method has the same
+       call shape but applies **no scope filter**, unlike
+       ``authorization_redirect``. Data minimisation by scope is lost unless
+       the caller filters the claims it passes.
    * - :class:`pygrindvakt.http.ReqwestClient` never follows redirects,
        enforces connect / read / total timeouts, and caps response bodies
        (streamed, so ``Content-Length`` cannot lie). Zero values are
@@ -476,6 +489,20 @@ Input hardening the binding inherits from grindvakt
   without a fragment before a user is ever sent to them.
 
 
+Subject identifiers: public only
+--------------------------------
+
+The binding supports public subject identifiers only. It never enables
+core's pairwise subjects, so core refuses pairwise client registrations at
+validation, and the discovery document advertises
+``subject_types_supported: ["public"]``. No ``Provider`` method works with a
+client whose ``subject_type`` is ``"pairwise"``;
+``Provider.authorization_redirect_with_authorized_claims`` also refuses one
+with ``OAuthError(unauthorized_client)`` as defence in depth. Do not assume
+pairwise support when reading an RP's registration: if an RP asks for
+pairwise subjects, it cannot be served by this binding.
+
+
 Footguns the API leaves reachable (and why)
 -------------------------------------------
 
@@ -498,6 +525,17 @@ Each is named so it stands out in a code review.
    Return claims without checking any signature. For inspection only (which
    key set to fetch, which authority to ask). Never make a decision on their
    output.
+
+Endpoint query pairs that are not JAR-only names
+   With a request object (``request_object_key``, or ``request`` /
+   ``request_uri`` in ``extra``), a provider ``authorization_endpoint`` whose
+   own query names ``claims``, ``prompt``, ``ui_locales``, ``acr_values``,
+   ``max_age`` or ``signRequest`` is refused with ``ConfigError``, because it
+   would re-send an unsigned copy of a signed parameter. Any other endpoint
+   pair (``claims_locales``, ``login_hint``, a tenant selector) is passed
+   through unchecked: keep security-relevant values out of the endpoint URL.
+   An endpoint query that carries ``request`` or ``request_uri`` is likewise
+   refused with ``ConfigError`` when another request object is attached.
 
 Python protocol adapters
    A ``ClientStore``, ``TokenUseStore``, ``ReplayStore`` or ``HttpClient``
@@ -567,6 +605,11 @@ Checklist for a production RP
    your public key.
 #. Keep the built-in HTTP client, or make sure your own never follows
    redirects, enforces timeouts and caps bodies.
+#. Build ``extra`` for ``authorization_url`` / ``begin`` from configuration
+   only, never from user-controlled input (query-string passthrough,
+   pickers). The library refuses repeated signed-JAR claims and a second
+   request object, but cannot know which other ``extra`` keys are
+   attacker-controlled.
 #. Treat ``AuthnError`` messages as log material.
 #. Do not set ``unsafe_skip_nonce_check`` or
    ``allow_unregistered_redirect_uri``; register the redirect URIs instead.

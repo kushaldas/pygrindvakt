@@ -7,6 +7,90 @@ needed to track the upstream `grindvakt` library and correct protocol or
 security handling. `pygrindvakt` is a thin PyO3 binding; most entries reflect
 adopting a change made in `grindvakt` / `jose-rs` and surfacing it to Python.
 
+## [Unreleased]
+
+### Added
+
+- `provider.AuthorizedClaims(*, id_token, userinfo)` and
+  `Provider.authorization_redirect_with_authorized_claims(request, sub, claims,
+  *, acr=None, auth_time=None)`: release different claims to the ID token and
+  to UserInfo. No scope filter is applied; the code seals the registration
+  fingerprint and an explicit UserInfo claim set. Public subjects only: pairwise
+  clients are refused (`unauthorized_client`), because the binding has no
+  pairwise subject support.
+- `Provider.signed_userinfo(access_token, presented_jkt=None)`: UserInfo as a
+  signed JWT (`typ` `userinfo+jwt`, `aud` = client id, `exp` capped at five
+  minutes), or a JWE when the client registered
+  `userinfo_encrypted_response_alg`. Serve it as `application/jwt`.
+- `federation.verify_trust_marks(marks, issuer_jwks, required_type, *, subject,
+  issuer, require_exp=True)` and `federation.TRUST_MARK_TYP`: verify
+  trust marks from `ResolvedEntity.trust_marks` (core stores them raw).
+  `issuer` (keyword-only) is required: the trust mark issuer whose keys are
+  in `issuer_jwks`, so a mark self-signed by its subject is rejected. Raises
+  `AuthnError` `trust_mark_missing` / `trust_mark_invalid`. Entries signed
+  with `HS*` / `none` are skipped; `symmetric_algorithm` is raised only if no
+  entry verified. `iat` is required (OpenID Federation 1.0 section 7.1), and
+  marks must carry a `kid` header (kid-less marks are rejected so they cannot
+  verify under any key of a mixed-trust set).
+- `rp.signed_request_object(..., claims=, prompt=, ui_locales=, acr_values=,
+  max_age=, sign_request=)`: signed Request Object parameters (for example
+  Sweden Connect `signRequest`). `claims` and `sign_request` must be dicts and
+  keep their JSON types. `rp.begin(request_object_key=..., claims=, prompt=,
+  ui_locales=, acr_values=, max_age=, sign_request=)` takes the same arguments:
+  they are signed into the request object together with the generated state,
+  nonce and PKCE challenge, and the query is reduced to `client_id`,
+  `response_type` and `request` (plus `extra`), per RFC 9101 section 3. They
+  need `request_object_key` (`ValueError` otherwise). `begin` is unchanged
+  when none is given.
+- `Provider.consume_request_id(client_id, jti, expiry)`: OP-side one-time use
+  of a verified request object `jti`. Raises `OAuthError` `invalid_request`
+  (empty or over-512-byte `jti`, past `expiry`, or `expiry` more than 900 s
+  ahead, which is refused without recording anything) or `invalid_grant`
+  (replay). Use a shared `token_use_store` across replicas.
+
+### Changed
+
+- `rp.authorization_url` and `rp.begin` now raise `ValueError` (`ConfigError`
+  for endpoint query collisions) for call shapes that worked in 0.6.0, for
+  example `extra={"request": jar, "acr_values": ...}`, `request` together with
+  `request_uri`, or an endpoint query holding signed-parameter names. Move the
+  parameter into `signed_request_object(...)` or use
+  `begin(request_object_key=..., acr_values=...)`. Guard matching is
+  case-insensitive and trims whitespace in names.
+
+### Security
+
+- `rp.authorization_url` and `rp.begin` raise `ValueError` when a request
+  object is attached (`request` or `request_uri` in `extra`, which counts for
+  `begin` too, or `request_object_key`) and `extra` also holds `claims`, `prompt`,
+  `ui_locales`, `acr_values`, `max_age`, `signRequest` or
+  `https://id.oidc.se/param/signRequest`. An OP could otherwise apply the
+  unsigned copy instead of the signed one (RFC 9101 section 3). They also
+  raise `ValueError` for a second request object: `extra` holding both
+  `request` and `request_uri`, or either of them together with
+  `request_object_key`, or more than one `request`/`request_uri` entry in
+  `extra` once names are trimmed and lowercased (`request` plus `Request`)
+  (RFC 9101 section 3, RFC 9126 section 3). Without a
+  request object `extra` is unchanged. Both also raise `ConfigError` when the
+  provider's `authorization_endpoint` query carries one of those names while a
+  request object is attached, since the endpoint pair would re-send an
+  unsigned copy of a signed parameter, or carries `request` / `request_uri`
+  while another request object is attached (`request_object_key` or `extra`);
+  other endpoint pairs are kept as is.
+
+- Trust marks can now be verified. Pass the keys of the trust mark issuer
+  (the trust anchor only if it issues the mark itself). `exp` is optional in
+  the spec; `require_exp=True` is a deliberate fail-closed deviation.
+  `delegation` claims fail closed. Replaces the
+  `any(m["trust_mark_type"] == ...)` pattern, which trusts unsigned input.
+- `userinfo_encrypted_response_alg`/`_enc` are now applied by
+  `Provider.signed_userinfo`; docs no longer describe them as stored but not
+  applied. `Provider.userinfo` still returns plain JSON.
+- Documented hand-sealing authorization codes as an advanced path: omitting
+  `registration_digest` skips the registration check and
+  `userinfo_claims=None` over-releases claims at UserInfo. Use
+  `authorization_redirect_with_authorized_claims` instead.
+
 ## [0.6.0] - 2026-11-24
 
 ### Added
@@ -54,6 +138,16 @@ adopting a change made in `grindvakt` / `jose-rs` and surfacing it to Python.
 - `ResolvedEntity.exp` is now the earlier of the resolve response's `exp` and
   the earliest expiry in its validated trust chain, so a cache bounded by it
   cannot outlive the chain.
+
+### Deprecated
+
+- Constructing `tokens.AuthCodePayload` without `registration_digest` (or with
+  `None`) now emits a `FutureWarning`: the token endpoint skips the
+  client-registration binding check for such codes. Pass
+  `registration_digest=client.registration_fingerprint()` or use
+  `Provider.authorization_redirect_with_authorized_claims`. The argument will
+  become required in a future release. Opening sealed codes (including
+  0.5.x ones) does not warn. `RefreshTokenPayload` has no digest field.
 
 ### Changed
 

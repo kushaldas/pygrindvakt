@@ -229,3 +229,44 @@ def test_dpop_proof_class():
     with pytest.raises(TypeError):
         dpop.DpopProof("abc")
     assert dpop.InMemoryReplayStore().record("j", 10) is True
+
+
+def test_signed_userinfo_dpop_binding(op, dpop_key):
+    """signed_userinfo enforces the DPoP binding like userinfo."""
+    from conftest import REDIRECT_URI, basic_auth, code_from_redirect
+    from pygrindvakt import pkce, request
+
+    store = dpop.InMemoryReplayStore()
+    cfg = dpop.DpopConfig()
+    proof = dpop.validate_proof(store, cfg, make_proof(dpop_key, "POST", TOKEN_URL), "POST", TOKEN_URL)
+    verifier = util.random_token(32)
+    req = request.AuthorizationRequest.from_params(
+        [
+            ("client_id", "demo"),
+            ("response_type", "code"),
+            ("redirect_uri", REDIRECT_URI),
+            ("scope", "openid"),
+            ("nonce", "n"),
+            ("code_challenge", pkce.s256_challenge(verifier)),
+            ("code_challenge_method", "S256"),
+        ]
+    )
+    op.validate_authorization_request(req)
+    code = code_from_redirect(op.authorization_redirect(req, "alice"))
+    tr = op.handle_token_request(
+        [
+            ("grant_type", "authorization_code"),
+            ("code", code),
+            ("redirect_uri", REDIRECT_URI),
+            ("code_verifier", verifier),
+        ],
+        TOKEN_URL,
+        auth_header=basic_auth("demo", "s3cret"),
+        dpop=proof,
+    )
+    assert tr.token_type == "DPoP"
+    for jkt in (None, "someone-else"):
+        with pytest.raises(OAuthError) as ei:
+            op.signed_userinfo(tr.access_token, presented_jkt=jkt)
+        assert ei.value.code == "invalid_dpop_proof"
+    assert op.signed_userinfo(tr.access_token, presented_jkt=proof.jkt).count(".") == 2

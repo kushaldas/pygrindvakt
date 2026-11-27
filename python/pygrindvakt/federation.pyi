@@ -6,6 +6,7 @@ from .keys import SigningKey
 ENTITY_STATEMENT_TYP: str
 RESOLVE_RESPONSE_TYP: str
 JWK_SET_TYP: str
+TRUST_MARK_TYP: str
 
 class EntityStatement:
     @property
@@ -79,6 +80,38 @@ def verify_typed(token: str, jwks: dict[str, Any], typ: str) -> EntityStatement:
 
 def verify_self_signed(token: str) -> EntityStatement:
     """Verify a self-issued configuration; refuses ``alg`` ``HS*`` / ``none`` (``symmetric_algorithm``)."""
+
+def verify_trust_marks(
+    marks: list[Any],
+    issuer_jwks: dict[str, Any],
+    required_type: str,
+    *,
+    subject: str,
+    issuer: str,
+    require_exp: bool = True,
+) -> list[EntityStatement]:
+    """Verify the trust marks of ``required_type`` in ``marks`` (e.g. ``ResolvedEntity.trust_marks``).
+
+    ``issuer`` is mandatory: the entity id of the trust mark issuer whose verified
+    keys are in ``issuer_jwks`` (the trust anchor only when it issues the mark
+    itself). Never pass the subject's own keys (e.g. ``ResolvedEntity.subject_jwks``):
+    a mark self-signed by its subject must not count, and pinning ``issuer``
+    rejects it. Each entry of the type must be a
+    ``trust-mark+jwt`` with ``sub == subject`` and ``iss == issuer``,
+    inner ``trust_mark_type`` equal to ``required_type``, no ``delegation`` claim
+    (fails closed), a present ``iat`` (required by OpenID Federation 1.0 section 7.1),
+    a ``kid`` header (a mark without one is rejected, so it cannot verify under
+    an arbitrary key of a mixed-trust set) and valid ``exp`` / ``nbf`` / ``iat``. ``require_exp=True``
+    deliberately rejects marks without ``exp`` (optional in the spec).
+    Returns every verified mark. Non-dict entries and other types are ignored.
+
+    Raises ``AuthnError`` with ``code="trust_mark_missing"`` (no entry of the type),
+    ``"trust_mark_invalid"`` (none verified) or ``"symmetric_algorithm"`` (no entry verified and an entry
+    used ``HS*`` / ``none``; such entries are otherwise skipped).
+    ``oct`` keys in ``issuer_jwks`` are dropped with a ``UserWarning``.
+
+    .. versionadded:: 0.7.0
+    """
 
 def fetch_entity_configuration(http: _HttpArg, entity_id: str) -> str: ...
 def resolve_via_trust_anchors(http: _HttpArg, sub: str, trust_anchors: dict[str, dict[str, Any]]) -> ResolvedEntity:
